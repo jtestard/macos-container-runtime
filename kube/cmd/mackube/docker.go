@@ -102,12 +102,15 @@ func (d *dockerClient) imageExists(ctx context.Context, image string) error {
 	return d.call(ctx, http.MethodGet, "/images/"+url.PathEscape(image)+"/json", nil, &struct{}{}, http.StatusOK)
 }
 
-func (d *dockerClient) create(ctx context.Context, image, name string) (string, error) {
+func (d *dockerClient) create(ctx context.Context, image, name string, args, binds []string) (string, error) {
 	var response struct {
 		ID string `json:"Id"`
 	}
 	path := "/containers/create?name=" + url.QueryEscape(name)
-	err := d.call(ctx, http.MethodPost, path, map[string]any{"Image": image}, &response, http.StatusCreated)
+	err := d.call(ctx, http.MethodPost, path, map[string]any{
+		"Image": image, "Cmd": args,
+		"HostConfig": map[string]any{"Binds": binds},
+	}, &response, http.StatusCreated)
 	return response.ID, err
 }
 

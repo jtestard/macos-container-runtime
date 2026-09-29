@@ -1,5 +1,10 @@
 # Build `go-inf-server` with native Buildx
 
+This is the original Go wrapper example with SmolLM2 bundled in its image.
+The [voice cluster](../../docs/VOICE_CLUSTER.md) now uses the smaller,
+[model-free llama-server image](../../docs/LLAMA_SERVER_IMAGE.md) and mounts
+the GGUF from the Mac at run time.
+
 This example compiles the real `go-inf-server` cgo application from source in a
 `darwin/arm64` BuildKit `RUN` step. The final OCI image contains the server,
 its llama.cpp dylibs, `config.smollm2.toml`, and one SmolLM2 GGUF model. The

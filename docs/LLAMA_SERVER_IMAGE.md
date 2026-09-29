@@ -74,11 +74,12 @@ GGUF at its host path, `/health` returned `{"status":"ok"}`, and
 Metal driver. The exact number of model layers offloaded to Metal was not
 measured.
 
-The Kubernetes adapter in `kube/cmd/mackube` currently rejects Pod volumes,
-volume mounts, and container arguments. A Pod cannot use this model-free image
-until that adapter maps a supported volume and model argument into the `macd`
-container create request. `macd` also registers only one image per daemon and
-does not pull images itself.
+The Kubernetes adapter in `kube/cmd/mackube` passes container `args` and one
+read-only `hostPath` directory mount to `macd`. The
+[voice cluster LLM Deployment](../examples/voice-cluster/go-inf-server.yaml)
+uses this image, mounts SmolLM2 from the Mac, and adds `--port 8080` so the
+existing voice agent can keep its `LLM_BASE_URL`. `macd` registers only one
+image per daemon and does not pull images itself.
 
 The older `jtstormz/tiny-web:llama-server-smollm2-001` tag **does** bundle
 SmolLM2. It is an explicit historical variant, not the default composition.

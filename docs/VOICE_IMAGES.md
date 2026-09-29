@@ -8,8 +8,10 @@ worker and Buildx builder are set up in the [main README](../README.md).
 
 Build outputs go to the ignored `.build` directory. The sibling
 `go-inf-server` checkout supplies the web and agent source, speech settings,
-Kokoro source and weights, and Whisper model. Its LLM image is built as
-described in [the LLM example](../examples/go-inf-server/README.md).
+Kokoro source and weights, and Whisper model. The LLM now uses the model-free
+[llama-server image](LLAMA_SERVER_IMAGE.md); its GGUF stays on the Mac and is
+mounted when the Pod starts. See the [llama build plan](LLAMA_SERVER_BUILDPLAN.md)
+for its build and published image tag.
 The verified build used `go-inf-server` commit `351a70a`, its Kokoro checkout
 at `b4ef64b`, Whisper v1.9.1 at `f049fff`, and Node v20.11.1 with npm 10.2.4.
 

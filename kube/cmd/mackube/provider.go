@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,8 +47,8 @@ func validatePod(pod *corev1.Pod) error {
 	if !pod.Spec.HostNetwork {
 		return errdefs.InvalidInput("macnative requires hostNetwork: true")
 	}
-	if len(pod.Spec.Volumes) != 0 || len(pod.Spec.ImagePullSecrets) != 0 {
-		return errdefs.InvalidInput("volumes and image pull secrets are unsupported")
+	if len(pod.Spec.ImagePullSecrets) != 0 {
+		return errdefs.InvalidInput("image pull secrets are unsupported")
 	}
 	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
 		return errdefs.InvalidInput("set automountServiceAccountToken: false")
@@ -58,8 +60,11 @@ func validatePod(pod *corev1.Pod) error {
 		return errdefs.InvalidInput("Pod security context and host aliases are unsupported")
 	}
 	c := pod.Spec.Containers[0]
-	if c.Image == "" || len(c.Command) != 0 || len(c.Args) != 0 || len(c.Env) != 0 || len(c.EnvFrom) != 0 || len(c.VolumeMounts) != 0 || len(c.VolumeDevices) != 0 || c.SecurityContext != nil || c.Stdin || c.TTY {
-		return errdefs.InvalidInput("container overrides, environment, mounts, security context, stdin, and TTY are unsupported")
+	if c.Image == "" || len(c.Command) != 0 || len(c.Env) != 0 || len(c.EnvFrom) != 0 || len(c.VolumeDevices) != 0 || c.SecurityContext != nil || c.Stdin || c.TTY {
+		return errdefs.InvalidInput("entrypoint overrides, environment, devices, security context, stdin, and TTY are unsupported")
+	}
+	if _, err := podBinds(pod); err != nil {
+		return err
 	}
 	if c.ImagePullPolicy == corev1.PullAlways {
 		return errdefs.InvalidInput("imagePullPolicy Always is unsupported; use Never or IfNotPresent")
@@ -68,6 +73,28 @@ func validatePod(pod *corev1.Pod) error {
 		return errdefs.InvalidInput("Kubernetes probes are unsupported by this provider")
 	}
 	return nil
+}
+
+// podBinds permits one read-only host directory. The hostPath is interpreted
+// on the Mac where macd runs, not on the Kubernetes control-plane node.
+func podBinds(pod *corev1.Pod) ([]string, error) {
+	c := pod.Spec.Containers[0]
+	if len(pod.Spec.Volumes) == 0 && len(c.VolumeMounts) == 0 {
+		return nil, nil
+	}
+	if len(pod.Spec.Volumes) != 1 || len(c.VolumeMounts) != 1 {
+		return nil, errdefs.InvalidInput("exactly one read-only hostPath directory and matching volumeMount are supported")
+	}
+	volume, mount := pod.Spec.Volumes[0], c.VolumeMounts[0]
+	if volume.HostPath == nil || volume.HostPath.Type == nil || *volume.HostPath.Type != corev1.HostPathDirectory ||
+		!reflect.DeepEqual(volume.VolumeSource, corev1.VolumeSource{HostPath: volume.HostPath}) ||
+		mount.Name != volume.Name || !mount.ReadOnly ||
+		!reflect.DeepEqual(mount, corev1.VolumeMount{Name: volume.Name, MountPath: mount.MountPath, ReadOnly: true}) ||
+		!filepath.IsAbs(volume.HostPath.Path) || !filepath.IsAbs(mount.MountPath) || filepath.Clean(mount.MountPath) == "/" ||
+		strings.Contains(volume.HostPath.Path, ":") {
+		return nil, errdefs.InvalidInput("volume must be an existing absolute hostPath Directory mounted read-only at an absolute image path without subPath")
+	}
+	return []string{volume.HostPath.Path + ":" + mount.MountPath + ":ro"}, nil
 }
 
 func (p *provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
@@ -132,7 +159,11 @@ func (p *provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 	} else if n != 0 {
 		return fmt.Errorf("macd already has a running container; stop it before scheduling a Pod")
 	}
-	id, err := p.docker.create(ctx, image, name)
+	binds, err := podBinds(pod)
+	if err != nil {
+		return err
+	}
+	id, err := p.docker.create(ctx, image, name, pod.Spec.Containers[0].Args, binds)
 	if err != nil {
 		return err
 	}

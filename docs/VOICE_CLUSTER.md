@@ -19,6 +19,8 @@ selects `kind-livekit`; every command below also names the dedicated
 - [x] Verify the image-built Whisper and Kokoro speech round trip.
 - [x] Verify an image-built agent joins a LiveKit room and synthesizes its greeting through image-built Kokoro.
 - [x] Publish a spoken question through LiveKit and verify the agent reaches Whisper, the Metal LLM, and Kokoro.
+- [x] Replace the LLM Pod with the model-free llama-server image and a read-only hostPath GGUF; verify health, models, and chat responses on 8080.
+- [ ] Verify the voice agent against the model-free llama-server Pod with the host-mounted GGUF.
 - [ ] Verify a spoken browser turn using a microphone.
 
 ## Components
@@ -27,7 +29,7 @@ selects `kind-livekit`; every command below also names the dedicated
 | --- | --- | --- |
 | LiveKit SFU | Linux Pod in Kind | 7880/TCP, 7881/TCP, 7882/UDP |
 | Web UI | Linux Pod in Kind | 8090/TCP |
-| `go-inf-server` LLM | native `macnative` Pod | 8080/TCP |
+| `llama-server` LLM (`go-inf-server` Deployment) | native `macnative` Pod | 8080/TCP |
 | Whisper STT | native `macnative-whisper` Pod | 8000/TCP |
 | Kokoro TTS | native `macnative-kokoro` Pod | 8880/TCP |
 | Voice agent | native `macnative-agent` Pod | 8083/TCP |
@@ -43,7 +45,7 @@ Pods is not implemented yet.
 ## Build and start
 
 Build the images using [VOICE_IMAGES.md](VOICE_IMAGES.md). The LLM image build
-is also described in [the example README](../examples/go-inf-server/README.md).
+and model mount are described in [LLAMA_SERVER_IMAGE.md](LLAMA_SERVER_IMAGE.md).
 Build `imgrun`, `macd`, and `mackube` as in [KUBERNETES.md](KUBERNETES.md):
 
 ```sh
@@ -72,7 +74,8 @@ Start one `macd` per image. Keep each process running in its own terminal or
 under a process supervisor:
 
 ```sh
-.build/macd -image .build/go-inf-server-smollm2.tar -tag go-inf-server:smollm2 \
+.build/macd -image .build/llama-server.tar \
+  -tag jtstormz/tiny-web:llama-server-001 \
   -runner .build/imgrun -socket /private/tmp/macnative-voice-docker.sock
 .build/macd -image .build/whisper-base-en.tar -tag whisper-base-en:local \
   -runner .build/imgrun -socket /private/tmp/macnative-whisper-docker.sock
@@ -96,16 +99,25 @@ node so the scheduler selects the correct registered image:
   -node-name macnative-agent -slot agent -socket /private/tmp/macnative-agent-docker.sock
 ```
 
-Deploy the three API services first. Their Pods report `Running` when the
-process starts; the LLM and Kokoro need more time to load models and Metal
-kernels. Check their HTTP endpoints before starting the agent:
+The LLM Deployment uses the model-free `llama-server` image. Its read-only
+`hostPath` points to
+`/absolute/path/to/go-inf-server/models/smollm2-360m` on the Mac;
+edit that path in the manifest if your model lives elsewhere. The image
+defaults to port 8082, so the Pod adds `--port 8080` to keep the voice agent's
+packaged `LLM_BASE_URL` valid. `llama-server` logs a duplicate-port warning;
+the appended value wins. If `.build/llama-server.tar` is absent, download the
+published tag as an OCI tarball using the [root README](../README.md#run-an-image-from-docker-hub)
+before starting `macd`. Deploy the three API services first. Their Pods
+report `Running` when the process starts; the LLM and Kokoro need more time
+to load models and Metal kernels. Check their HTTP endpoints before starting
+the agent:
 
 ```sh
 kubectl --kubeconfig .build/livekit-kubeconfig apply \
   -f examples/voice-cluster/go-inf-server.yaml \
   -f examples/voice-cluster/whisper.yaml \
   -f examples/voice-cluster/kokoro.yaml
-curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/health
 curl http://127.0.0.1:8880/health
 kubectl --kubeconfig .build/livekit-kubeconfig apply -f examples/voice-cluster/agent.yaml
 kubectl --kubeconfig .build/livekit-kubeconfig -n livekit get pods -o wide
@@ -156,7 +168,8 @@ then follow the start sequence above.
 ## Prototype limits
 
 `mackube` cannot assign a Pod IP, route a Kubernetes Service to a native Pod,
-inject Pod environment variables, or mount volumes. The native Pods share the
+or inject Pod environment variables. It supports one read-only hostPath
+directory per Pod; other volume types are unsupported. The native Pods share the
 Mac's host network, and each must listen on a distinct port. Resource capacity
 is reported separately for each virtual node even though they share one Mac.
 Pod readiness currently means the process is alive, so use the HTTP checks

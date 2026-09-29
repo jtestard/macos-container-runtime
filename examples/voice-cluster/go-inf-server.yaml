@@ -28,7 +28,21 @@ spec:
       enableServiceLinks: false
       containers:
         - name: server
-          image: go-inf-server:smollm2
+          image: jtstormz/tiny-web:llama-server-001
           imagePullPolicy: Never
+          args:
+            - -m
+            - models/SmolLM2-360M-Instruct-Q8_0.gguf
+            - --port
+            - "8080"
+          volumeMounts:
+            - name: llama-model
+              mountPath: /app/models
+              readOnly: true
           ports:
             - containerPort: 8080
+      volumes:
+        - name: llama-model
+          hostPath:
+            path: /absolute/path/to/go-inf-server/models/smollm2-360m
+            type: Directory

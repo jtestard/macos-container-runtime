@@ -97,11 +97,15 @@ process; the API server and scheduler can be elsewhere.
 
 The image must already be registered in `macd` under the exact tag in the
 Pod spec. There is no image pull. The Pod must request one ordinary container
-with its image's default command, `hostNetwork: true`,
+with its image's default entrypoint, `hostNetwork: true`,
 `automountServiceAccountToken: false`, and `enableServiceLinks: false`.
-Volumes, image secrets, environment
+Container `args` are passed after the image entrypoint. One `hostPath` volume
+of type `Directory` can be mounted read-only into the container. Its source
+path is on the Mac running `macd`, and the image target must be absent from
+the image. See the [LLM Deployment](../examples/voice-cluster/go-inf-server.yaml)
+for a model directory example. Other volume types, image secrets, environment
 overrides, probes, exec, port forwarding, metrics, and Kubernetes log
-streaming are not implemented. The provider rejects unsupported fields rather
+streaming are unsupported. The provider rejects unsupported fields rather
 than silently ignoring them.
 
 The provider reports the process as running after `macd` confirms it started;

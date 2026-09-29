@@ -18,6 +18,15 @@ For the exact build inputs, OCI contents, and runtime mount contract, see the
 - [x] Check the bind parser and runner path validation with focused Go tests.
 - [x] Publish and inspect the model-free image in the private Docker Hub
   repository.
+- [x] Pass a Kubernetes container's arguments and one read-only hostPath
+  directory through `mackube` to `macd`; cover accepted and rejected mounts
+  with focused tests.
+- [x] Start the model-free image with a host-mounted SmolLM2 model and an
+  appended `--port` override; `/health` returned `{"status":"ok"}`.
+- [x] Roll out the new image through the voice cluster's virtual LLM node;
+  verify the read-only bind, `/health`, `/v1/models`, chat completion, and
+  streaming response on port 8080.
+- [ ] Verify a complete voice-agent turn against this replacement LLM Pod.
 
 The earlier `jtstormz/tiny-web:llama-server-smollm2-001` image contains a
 model. It remains an explicit, versioned example rather than the default.
