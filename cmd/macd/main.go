@@ -362,7 +362,7 @@ func (d *daemon) containerRequest(w http.ResponseWriter, r *http.Request, p stri
 	case action == "json" && r.Method == http.MethodGet:
 		d.inspect(w, c)
 	case action == "logs" && r.Method == http.MethodGet:
-		d.logs(w, c)
+		d.logs(w, r, c)
 	case action == "stop" && r.Method == http.MethodPost:
 		d.stop(w, c)
 	case action == "kill" && r.Method == http.MethodPost:
@@ -580,13 +580,58 @@ func (d *daemon) list(w http.ResponseWriter) {
 	writeJSON(w, http.StatusOK, items)
 }
 
-func (d *daemon) logs(w http.ResponseWriter, c *container) {
+func (d *daemon) logs(w http.ResponseWriter, r *http.Request, c *container) {
+	follow := r.URL.Query().Get("follow") == "1" || strings.EqualFold(r.URL.Query().Get("follow"), "true")
+	ch := make(chan frame, 64)
 	d.mu.Lock()
 	history := append([]frame(nil), c.logs...)
+	running := c.status != "exited"
+	if follow && running {
+		c.watch[ch] = struct{}{}
+	}
 	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		delete(c.watch, ch)
+		d.mu.Unlock()
+	}()
 	w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+	flush := func() {
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
 	for _, f := range history {
 		if err := writeFrame(w, f); err != nil {
+			return
+		}
+	}
+	flush()
+	if !follow || !running {
+		return
+	}
+	for {
+		select {
+		case f := <-ch:
+			if err := writeFrame(w, f); err != nil {
+				return
+			}
+			flush()
+		case <-c.done:
+			for {
+				select {
+				case f := <-ch:
+					if err := writeFrame(w, f); err != nil {
+						return
+					}
+					flush()
+				default:
+					return
+				}
+			}
+		case <-r.Context().Done():
 			return
 		}
 	}

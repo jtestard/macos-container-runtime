@@ -15,5 +15,8 @@ func main() {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("hello from macOS arm64\n"))
 	})
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	log.Fatal(http.ListenAndServe(":8080", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("request method=%s uri=%q remote=%s", r.Method, r.URL.RequestURI(), r.RemoteAddr)
+		mux.ServeHTTP(w, r)
+	})))
 }
