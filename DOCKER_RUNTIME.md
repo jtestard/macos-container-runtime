@@ -84,11 +84,22 @@ docker --context macnative stop tiny-web
 docker --context macnative rm tiny-web
 ```
 
-The tested health response is `ok`. `docker run`, `ps`, `logs`, `stop`, `rm`,
-and `image inspect` worked through this context with Docker CLI 28.0.4. The
-foreground CLI attached to native process output and completed after
+The tiny server logs every HTTP request. To follow new requests live in a
+second terminal:
+
+```sh
+docker --context macnative logs -f tiny-web
+```
+
+For a running container, `docker --context macnative rm -f tiny-web` kills the
+server, waits for runner cleanup, and removes the container record in one
+command. It also closes an active `logs -f` stream.
+
+The tested health response is `ok`. `docker run`, `ps`, `logs`, `logs -f`,
+`stop`, `rm`, `rm -f`, `images`, and `image inspect` worked through this context
+with Docker CLI 28.0.4. The foreground CLI attached to native process output and completed after
 `docker stop`. The image ID reported by `image inspect` is the OCI config
-digest.
+digest, and its creation time comes from the OCI image config.
 
 ## Current boundaries
 

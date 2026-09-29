@@ -42,3 +42,5 @@ The image can be launched through the project's small
 [Docker CLI runtime prototype](../../DOCKER_RUNTIME.md). The runtime service
 supports `docker --context macnative run tiny-web:latest` for this registered
 image. `GET http://127.0.0.1:8080/healthz` returned `ok`.
+The server logs the method, URI, and client address of each HTTP request;
+the messages are available through `docker --context macnative logs tiny-web`.

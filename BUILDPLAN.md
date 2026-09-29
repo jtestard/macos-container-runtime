@@ -5,8 +5,9 @@ through an unmodified Docker CLI using Buildx remote. This is an integration
 probe, not a complete container builder or runtime.
 
 **Progress as of 2026-09-29:** The CPU `RUN` worker, image-contained Go build
-example, local runner, and first Docker CLI `run` integration are complete.
-The next architectural gate is a proper image-root view for builds and runs.
+example, local runner, Docker CLI `run`, request logs, and force removal are
+working. The next architectural gate is a proper image-root view for builds
+and runs.
 
 | Step | Status | Evidence or next action |
 | --- | --- | --- |
@@ -78,3 +79,28 @@ responsible for materializing and executing the image.
 | 3. Register a Docker context | Done | `macnative` points at the runtime socket; the default context remains `desktop-linux`. |
 | 4. End-to-end run | Done | Foreground and detached `docker --context macnative run` launched the server; `/healthz` returned `ok`; `ps`, `logs`, `stop`, and `rm` worked. `docker image inspect` reports the OCI config digest. |
 | 5. Daemon shutdown | Done | SIGTERM stopped a running server and released host port 8080. The service was restarted with no test container active. See [DOCKER_RUNTIME.md](DOCKER_RUNTIME.md). |
+
+## Completed fix: force-remove a running container
+
+The Docker CLI sends `DELETE /containers/{id}?force=1` for `docker rm -f`.
+The service now handles force removal of a running container. The specific
+container from the original report was stopped and removed using the existing
+two-command path before this fix.
+
+| Step | Status | Check |
+| --- | --- | --- |
+| 1. Handle force removal | Done | The runner kills its child process group and cleans up before the daemon deletes the record. |
+| 2. Verify through Docker CLI | Done | `docker --context macnative rm -f ff03a037e4f5` succeeded while the server was running; the record and port 8080 are gone. |
+| 3. Document and commit | Done | Runtime guide updated; implementation committed separately from request logging. |
+
+## Completed task: request logging and Docker log commands
+
+**Goal:** Make the tiny server log every HTTP request, rebuild its image, and
+verify those messages through the regular Docker CLI.
+
+| Step | Status | Check |
+| --- | --- | --- |
+| 1. Add request logging | Done | Each request logs method, request URI, and client address. |
+| 2. Rebuild and register the image | Done | Buildx exported a new `darwin/arm64` OCI tar, and `macd` was restarted with it. |
+| 3. Support live Docker logs | Done | `docker logs -f` streamed a new request and exited after the container was removed. |
+| 4. End-to-end commands | Done | `run`, `/healthz`, `logs`, `logs -f`, `rm -f`, and `ps -a` worked; port 8080 was released. |
