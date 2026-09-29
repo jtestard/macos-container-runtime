@@ -44,6 +44,8 @@ The reusable, model-free llama.cpp server is
 `jtstormz/tiny-web:llama-server-001`. Its [example guide](docs/LLAMA_SERVER_BUILDPLAN.md)
 shows how to start it with a model directory mounted read-only. The commands
 below demonstrate the existing Go inference image with SmolLM2 bundled.
+The [image composition note](docs/LLAMA_SERVER_IMAGE.md) records its build
+inputs, final OCI contents, and runtime volume contract.
 
 ```sh
 IMAGE=jtstormz/tiny-web:go-inf-server-smollm2-001

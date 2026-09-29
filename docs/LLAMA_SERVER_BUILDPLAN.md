@@ -4,6 +4,9 @@ Goal: provide an upstream llama.cpp `llama-server` image for `darwin/arm64`
 with Metal, with no model bundled by default. Supply a GGUF through a read-only
 volume when starting the container.
 
+For the exact build inputs, OCI contents, and runtime mount contract, see the
+[image composition handoff](LLAMA_SERVER_IMAGE.md).
+
 ## Progress
 
 - [x] Build a static `llama-server` binary with the Metal library embedded.
