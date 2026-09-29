@@ -7,8 +7,9 @@ Kokoro TTS, and LiveKit voice agent. Each native service gets its own Docker
 socket and virtual node because this prototype registers one image and runs
 one Pod per `macd` and `mackube` pair.
 
-The separate Kind cluster named `kind` is untouched. Every command below
-targets `.build/livekit-kubeconfig`, which contains only `kind-livekit`.
+The older `kind-kind` cluster has been removed. The default kubeconfig now
+selects `kind-livekit`; every command below also names the dedicated
+`.build/livekit-kubeconfig` explicitly.
 
 ## Progress
 
@@ -62,6 +63,10 @@ kubectl --kubeconfig .build/livekit-kubeconfig apply -f examples/voice-cluster/w
 kubectl --kubeconfig .build/livekit-kubeconfig -n livekit rollout status deployment/livekit
 kubectl --kubeconfig .build/livekit-kubeconfig -n livekit rollout status deployment/voice-web
 ```
+
+To make plain `kubectl` use this cluster as well, run
+`kind export kubeconfig --name livekit`. This adds `kind-livekit` to the
+default kubeconfig and selects it without removing other non-Kind contexts.
 
 Start one `macd` per image. Keep each process running in its own terminal or
 under a process supervisor:
@@ -146,7 +151,7 @@ kubectl --kubeconfig .build/livekit-kubeconfig delete -k examples/voice-cluster/
 Changing `kind-cluster.yaml` port mappings requires recreating this dedicated
 cluster. After stopping native Pods and adapters, use
 `kind delete cluster --name livekit --kubeconfig .build/livekit-kubeconfig`,
-then follow the start sequence above. The separate `kind` cluster is unaffected.
+then follow the start sequence above.
 
 ## Prototype limits
 
