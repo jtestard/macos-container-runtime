@@ -1,0 +1,43 @@
+# NodePort, not LoadBalancer: kind ships no load-balancer controller, so a
+# LoadBalancer Service would sit in <pending> forever. The nodePort numbers
+# are pinned because k8s/kind-cluster.yaml maps host ports onto them, and
+# those mappings are fixed when the cluster is created — an auto-assigned
+# nodePort would land somewhere the host has no route to.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit
+spec:
+  type: NodePort
+  selector:
+    app: livekit
+
+  # Skips kube-proxy's SNAT, which would collapse every client to the node
+  # address. Safe on a one-node cluster, which cannot route to a node that
+  # lacks the pod.
+  #
+  # It does NOT get you the browser's real address: Docker Desktop's port
+  # forwarding rewrites the source before kube-proxy ever sees the packet,
+  # so the SFU reports the kind bridge gateway. Expect candidates like
+  # `udp prflx 172.18.0.1:61304` in the logs — that is the host, working
+  # correctly, not a misrouted pod. Distinct source PORTS do survive, and
+  # ICE demultiplexes the mux by STUN ufrag anyway.
+  externalTrafficPolicy: Local
+
+  ports:
+    - name: signaling          # WebSocket signaling + server API
+      port: 7880
+      targetPort: 7880
+      nodePort: 30880
+      protocol: TCP
+    - name: ice-tcp            # ICE/TCP fallback
+      port: 7881
+      targetPort: 7881
+      nodePort: 30881
+      protocol: TCP
+    - name: ice-udp            # ICE/UDP mux — ALL media rides this one
+      port: 7882
+      targetPort: 7882
+      nodePort: 30882
+      protocol: UDP

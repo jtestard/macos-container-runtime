@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-inf-server
+  namespace: livekit
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: go-inf-server
+  template:
+    metadata:
+      labels:
+        app: go-inf-server
+    spec:
+      nodeSelector:
+        macnative.dev/runtime: darwin-arm64
+      tolerations:
+        - key: macnative.dev/runtime
+          operator: Equal
+          value: darwin-arm64
+          effect: NoSchedule
+      hostNetwork: true
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: server
+          image: go-inf-server:smollm2
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080

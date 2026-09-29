@@ -43,8 +43,9 @@ Only one `macd` may own that socket. Stop the existing instance first if it
 currently serves another image. The test server uses host port 8081.
 
 Export a kubeconfig containing only the local Kind cluster. `mackube`
-requires its current context to be `kind-kind`; it refuses other contexts to
-avoid changing an unrelated cluster.
+requires exactly one context, named `kind-kind` by default; pass
+`-kind-cluster <name>` for a different dedicated Kind cluster. It refuses
+other contexts to avoid changing an unrelated cluster.
 
 ```sh
 kind export kubeconfig --name kind --kubeconfig .build/kind-kubeconfig

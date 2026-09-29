@@ -1,0 +1,45 @@
+# LiveKit server config. Becomes the livekit-config ConfigMap via
+# kustomization.yaml, mounted at /etc/livekit/livekit.yaml.
+#
+# Note what is NOT here: `keys:`. Credentials arrive as LIVEKIT_KEYS from a
+# Secret instead — see kustomization.yaml.
+#
+# Trimmed from upstream config-sample.yaml, and the absences are deliberate.
+# There is no `redis:` block: the sample ships one and the server exits at
+# boot on the DNS lookup for a Redis that is not there. Redis is only for
+# multi-node routing, Egress, Ingress or SIP, and this is one replica.
+# There is no `turn:` block either — TURN relays media past a NAT the SFU
+# cannot traverse, and there is no NAT between a browser and a port on its
+# own loopback interface.
+
+port: 7880
+
+rtc:
+  tcp_port: 7881
+
+  # UDP mux: every peer's media multiplexes onto this single port, instead
+  # of port_range_start/end (default 50000-60000). A 10k-port range is
+  # unworkable here — kind would need 10k extraPortMappings. The two are
+  # mutually exclusive and the RANGE WINS if both are set, so port_range_*
+  # must be ABSENT, not set to zero.
+  udp_port: 7882
+
+  # Upstream defaults this to true, which STUNs the public WAN address into
+  # every ICE candidate, and refuses to boot with no internet.
+  use_external_ip: false
+
+  # Without this, candidates advertise the pod IP (10.244.x), which the
+  # browser cannot reach: signaling succeeds, the room joins, then media
+  # dies silently ~10s later. Ignored entirely unless use_external_ip is
+  # false (livekit/livekit#4049) — the two are a pair, never split them.
+  #
+  # 127.0.0.1 is correct here because of k8s/kind-cluster.yaml, not by
+  # default. The browser sends media to the hostPort on the macOS loopback
+  # and kind forwards it to the NodePort, so 127.0.0.1:7882 is genuinely
+  # where the media lands. Under Kubernetes this value tracks the cluster's
+  # port mappings, not anything about the pod — the pod sees 10.244.x and
+  # that address must never appear in a candidate.
+  node_ip: 127.0.0.1
+
+logging:
+  level: info

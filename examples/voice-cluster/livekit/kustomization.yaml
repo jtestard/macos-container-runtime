@@ -1,0 +1,48 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Everything lands in its own namespace so `make livekit-down` can never
+# reach into kube-system, and so this is safe to apply to a cluster that
+# already has other work in it.
+namespace: livekit
+
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+
+commonLabels:
+  app: livekit
+
+# Both generators append a content hash to the object name and rewrite the
+# Deployment's references to match, so editing livekit.yaml produces a new
+# ConfigMap name and therefore a new pod template — the config change rolls
+# out on its own. Hand-written ConfigMaps do the opposite: `kubectl apply`
+# updates the object, the running server keeps its old config, and it looks
+# exactly like the edit did nothing.
+configMapGenerator:
+  - name: livekit-config
+    files:
+      - livekit.yaml
+
+# The keys go in a Secret rather than the ConfigMap above. That matters less
+# for `devkey`/`secret` — a published pair worth nothing — than for the
+# shape it sets: ConfigMaps are the objects people paste into tickets, dump
+# with `kubectl describe` and sync from git without thinking, and RBAC
+# routinely grants read on configmaps while withholding secrets. Keeping the
+# credential separate means going to production is swapping one object, or
+# pointing at a real secret store, rather than restructuring the config.
+#
+# devkey/secret is LiveKit's documented dev pair and is only legal because
+# the Deployment passes --dev: outside dev mode ValidateKeys() rejects any
+# secret under 32 characters. Dropping --dev means generating a >=32-char
+# secret FIRST, or the server will not start.
+#
+# LIVEKIT_KEYS is a YAML mapping, the same shape as the config file's
+# `keys:` block would have been.
+secretGenerator:
+  - name: livekit-keys
+    literals:
+      # Quoted: the ": " inside the value would otherwise parse as a YAML
+      # mapping and kustomize rejects the file outright.
+      - "LIVEKIT_KEYS=devkey: secret"

@@ -145,6 +145,11 @@ the Pod, while the application runs as a native macOS process through
 handles one Pod with one container; Kubernetes Service routing is a later
 step.
 
+The [local voice cluster guide](docs/VOICE_CLUSTER.md) deploys LiveKit to a
+dedicated Kind cluster with UDP media forwarding and schedules the Metal
+`go-inf-server` image on its macOS virtual node. It also explains how to run
+the remaining speech and browser processes for the complete local voice loop.
+
 ## What works and what is still experimental
 
 The patched BuildKit worker handles the sample's `COPY` and CPU `RUN` steps

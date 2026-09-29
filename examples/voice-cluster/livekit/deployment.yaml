@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit
+spec:
+  # Exactly one. Scaling out needs Redis for cross-node routing, and a second
+  # replica without it gives you two SFUs that cannot see each other's rooms
+  # — a participant joining "the same" room lands in whichever pod the
+  # Service picked and hears silence.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: livekit
+  strategy:
+    # A rolling update would briefly run two SFUs behind one Service, which
+    # is the split-brain above. Recreate accepts a few seconds of downtime
+    # instead; this is a dev SFU, not a service with an SLO.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: livekit
+    spec:
+      # Not optional, and the reason is non-obvious. Kubernetes injects
+      # Docker-link-style env vars for every Service in the namespace, so a
+      # Service named `livekit` produces LIVEKIT_PORT=tcp://10.96.x.x:7880.
+      # livekit-server reads LIVEKIT_PORT as the value of its --port flag
+      # (its CLI binds flags to LIVEKIT_*-prefixed env vars, which is also
+      # how LIVEKIT_KEYS reaches it), so the pod crashloops on:
+      #
+      #   could not parse "tcp://10.96.70.127:7880" as uint value from
+      #   environment variable "LIVEKIT_PORT" for flag port
+      #
+      # The Service exposing the app poisons the app. Renaming the Service
+      # would also dodge it, but this kills the whole injected set rather
+      # than one collision, and keeps the Service named for what it is.
+      enableServiceLinks: false
+      containers:
+        - name: livekit
+          # Pinned, and a true multi-arch tag with a native linux/arm64
+          # manifest — no nodeSelector for arch, no qemu. Never `latest` or
+          # `master`: those move under you.
+          image: livekit/livekit-server:v1.13.7
+          args:
+            - --config
+            - /etc/livekit/livekit.yaml
+            # --bind 0.0.0.0 is load-bearing: with dev keys the server
+            # otherwise binds loopback INSIDE the container, and every
+            # connection through the Service is refused.
+            - --bind
+            - 0.0.0.0
+            # --dev is what makes the 6-character dev secret legal.
+            - --dev
+          envFrom:
+            - secretRef:
+                name: livekit-keys
+          ports:
+            - name: signaling
+              containerPort: 7880
+              protocol: TCP
+            - name: ice-tcp
+              containerPort: 7881
+              protocol: TCP
+            - name: ice-udp
+              containerPort: 7882
+              protocol: UDP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit
+              readOnly: true
+          # Probes deliberately target 7880 only. There is no health check
+          # that proves the UDP path works — see `make livekit-demo`, which
+          # is the only real one.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: signaling
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: signaling
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: livekit-config

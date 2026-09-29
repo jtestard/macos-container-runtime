@@ -23,19 +23,20 @@ const runtimeValue = "darwin-arm64"
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "explicit kubeconfig path (defaults to KUBECONFIG)")
+	kindCluster := flag.String("kind-cluster", "kind", "name of the local Kind cluster")
 	socket := flag.String("socket", "/private/tmp/macnative-docker.sock", "macd Docker socket")
 	flag.Parse()
 	if flag.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "usage: mackube [-kubeconfig path] [-socket path]")
+		fmt.Fprintln(os.Stderr, "usage: mackube [-kubeconfig path] [-kind-cluster name] [-socket path]")
 		os.Exit(2)
 	}
-	if err := run(*kubeconfig, *socket); err != nil {
+	if err := run(*kubeconfig, *kindCluster, *socket); err != nil {
 		fmt.Fprintln(os.Stderr, "mackube:", err)
 		os.Exit(1)
 	}
 }
 
-func run(kubeconfig, socket string) error {
+func run(kubeconfig, kindCluster, socket string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	backend := newDockerClient(socket)
@@ -52,8 +53,9 @@ func run(kubeconfig, socket string) error {
 	if err != nil {
 		return err
 	}
-	if config.CurrentContext != "kind-kind" {
-		return fmt.Errorf("kubeconfig current context is %q, expected kind-kind; use a Kind-only kubeconfig", config.CurrentContext)
+	expectedContext := "kind-" + kindCluster
+	if kindCluster == "" || config.CurrentContext != expectedContext || len(config.Contexts) != 1 {
+		return fmt.Errorf("kubeconfig must contain only context %q; current context is %q and context count is %d", expectedContext, config.CurrentContext, len(config.Contexts))
 	}
 	client, err := nodeutil.ClientsetFromEnv(kubeconfig)
 	if err != nil {

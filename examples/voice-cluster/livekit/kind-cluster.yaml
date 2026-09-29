@@ -1,0 +1,40 @@
+# The load-bearing file. Everything else here is ordinary Kubernetes; this is
+# the part that decides whether media reaches a browser on macOS at all.
+#
+# kind runs the cluster node as a Docker container inside Docker Desktop's
+# Linux VM. macOS cannot route to that container's 172.18.x address, and
+# Docker fixes a container's published ports at CREATION time — so a cluster
+# built without these mappings can never expose 7882/udp to the host, no
+# matter which Service type you put in front of the pod. That is why this is
+# a dedicated cluster rather than a manifest you drop on an existing one.
+#
+# `kubectl port-forward` is not an escape hatch: it is TCP-only
+# (kubernetes/kubernetes#47862). It would forward 7880 signaling perfectly
+# and silently drop every media packet — the exact ~10s-then-dead failure.
+#
+# hostPort must EQUAL the port LiveKit advertises. The server puts
+# `node_ip:udp_port` into its ICE candidates, so the browser dials
+# 127.0.0.1:7882; if the host side were 31882 the candidate would be a lie.
+# containerPort is just the NodePort the Service pins, and can be anything
+# in the 30000-32767 range.
+#
+# listenAddress 127.0.0.1 keeps an unauthenticated dev SFU off the LAN.
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: livekit
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30880      # signaling (WebSocket) + server API
+        hostPort: 7880
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 30881      # ICE/TCP fallback
+        hostPort: 7881
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 30882      # ICE/UDP mux — ALL media rides this one
+        hostPort: 7882
+        listenAddress: "127.0.0.1"
+        protocol: UDP
