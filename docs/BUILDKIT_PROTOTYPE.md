@@ -27,7 +27,7 @@ cache, and OCI exporter.
 Prerequisites: macOS arm64, Go 1.24 or later, Docker CLI with Buildx, and Git.
 Run these commands from this repository's root. BuildKit source is cloned into
 ignored `.build/`; the reviewable change is
-[`patches/buildkit-v0.24.0-darwin-prototype.patch`](patches/buildkit-v0.24.0-darwin-prototype.patch).
+[`patches/buildkit-v0.24.0-darwin-prototype.patch`](../patches/buildkit-v0.24.0-darwin-prototype.patch).
 
 ```sh
 mkdir -p .build
@@ -82,7 +82,7 @@ transferred-file `lchown`, so ownership is not preserved. Those vendor and
 mount changes are exploratory compatibility workarounds. Secrets, cache
 mounts, network policy, symlinks, xattrs, and deletion whiteouts have not been
 validated. Basic `COPY` and a staged Go compile have been validated in
-[examples/tiny-web](examples/tiny-web/README.md). Metal access from this executor has
+[examples/tiny-web](../examples/tiny-web/README.md). Metal access from this executor has
 not been tested. A host shell may be able to reach Metal, but the result will
 depend on macOS permissions and any later isolation mechanism.
 

@@ -7,7 +7,7 @@ copied into that stage. The final stage contains only the server binary.
 ## Build
 
 Start the patched native `buildkitd` and register the `macnative` Buildx remote
-builder as described in [BUILDKIT_PROTOTYPE.md](../../BUILDKIT_PROTOTYPE.md).
+builder as described in [BUILDKIT_PROTOTYPE.md](../../docs/BUILDKIT_PROTOTYPE.md).
 Use an installed macOS arm64 Go 1.24 distribution as the named build context:
 
 ```sh
@@ -38,8 +38,8 @@ on the host. The Dockerfile derives the physical snapshot path to locate the
 staged Go distribution. This workaround is specific to the current worker;
 normal Dockerfile root filesystem semantics are still a separate design gate.
 The image can be launched through the project's small
-[local OCI runner](../../RUNNER.md) or through the
-[Docker CLI runtime prototype](../../DOCKER_RUNTIME.md). The runtime service
+[local OCI runner](../../docs/RUNNER.md) or through the
+[Docker CLI runtime prototype](../../docs/DOCKER_RUNTIME.md). The runtime service
 supports `docker --context macnative run tiny-web:latest` for this registered
 image. `GET http://127.0.0.1:8080/healthz` returned `ok`.
 The server logs the method, URI, and client address of each HTTP request;

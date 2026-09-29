@@ -7,7 +7,7 @@ binary.
 ## Run the tiny server
 
 Build the image with the command in
-[examples/tiny-web/README.md](examples/tiny-web/README.md). From the repository
+[examples/tiny-web/README.md](../examples/tiny-web/README.md). From the repository
 root, build and start the runner:
 
 ```sh

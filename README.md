@@ -1,94 +1,148 @@
-# macOS OCI image experiment
+# Native macOS container runtime
 
-The [build plan](BUILDPLAN.md) tracks progress and next gates. The proposed
-system design and unresolved decisions are in [ARCHITECTURE.md](ARCHITECTURE.md).
+This project explores building and running `darwin/arm64` OCI images directly
+on an Apple Silicon Mac, without a Linux VM. The longer-term goal is to run
+trusted applications that can use macOS frameworks and Metal while keeping a
+familiar Dockerfile and Docker CLI workflow.
 
-This repository packages a `darwin/arm64` OCI image for the native
-Metal-backed `go-inf-server` application and serves it from a small local
-registry. A pinned [BuildKit worker experiment](BUILDKIT_PROTOTYPE.md) now
-accepts Buildx remote builds and runs a simple CPU `RUN` on macOS arm64. Its
-host-shell execution does not yet provide Dockerfile root filesystem semantics.
-A [local OCI runner](RUNNER.md) launches the tiny web image, and a
-[Docker CLI runtime prototype](DOCKER_RUNTIME.md) exposes it through
-`docker --context macnative run`. This is a narrow Engine API subset.
+Today, the working example is a small Go HTTP server. A patched macOS BuildKit
+worker builds it from a Dockerfile through `docker buildx build` and exports an
+OCI image. A local runtime starts that image through
+`docker --context macnative run`. This is an early prototype: it supports a
+small set of Docker commands and has limited filesystem isolation. Metal
+access through this build and run path has not yet been tested.
 
-## Build the image
+## Try the tiny web server
 
-The packager uses only the Go standard library. It reads an already-built
-`go-inf-server` checkout and writes an OCI image layout:
+You need an Apple Silicon Mac, Go 1.24 or later, Git, and a Docker CLI with
+Buildx. Run the following commands from the root of this repository. The
+BuildKit source and build outputs live under the ignored `.build/` directory.
 
-```sh
-go run ./cmd/imgbuild \
-  -source '/absolute/path/to/go-inf-server' \
-  -output dist/go-inf-server-smollm2
-```
+### 1. Build and start the macOS BuildKit worker
 
-The source checkout must contain `bin/server`, `lib/*.dylib`,
-`config.smollm2.toml`, and
-`models/smollm2-360m/SmolLM2-360M-Instruct-Q8_0.gguf`. The builder checks that
-the executable and libraries are arm64 Mach-O files. It refuses to overwrite
-an existing output directory.
-
-The resulting layout has `oci-layout`, `index.json`, and SHA-256-addressed blobs.
-The index selects `darwin/arm64` and names the image
-`go-inf-server:smollm2`. Its manifest refers to two gzip-compressed tar layers:
-the application files and the GGUF model. The image config records the
-uncompressed layer digests, entrypoint, arguments, and working directory.
-
-The model is included for a self-contained first image. Other models, the web
-application, the speech services, source code, logs, and local configuration
-files outside the SmolLM2 profile are excluded.
-
-## Local registry prototype
-
-Run the registry on this Mac only:
+Set up the pinned BuildKit v0.24.0 patch once:
 
 ```sh
-go run ./cmd/registry -listen 127.0.0.1:5000 -data dist/registry
+mkdir -p .build
+git clone --branch v0.24.0 --depth 1 https://github.com/moby/buildkit.git .build/buildkit-src
+git -C .build/buildkit-src apply ../../patches/buildkit-v0.24.0-darwin-prototype.patch
+cd .build/buildkit-src
+GOCACHE="$PWD/../go-cache" go build -mod=vendor -o ../buildkitd-macos ./cmd/buildkitd
+cd ../..
 ```
 
-In another terminal, publish the existing OCI layout:
+Start BuildKit in a terminal and leave it running:
 
 ```sh
-go run ./cmd/imgpush -layout dist/go-inf-server-smollm2
-curl http://127.0.0.1:5000/v2/go-inf-server/tags/list
+.build/buildkitd-macos \
+  --root .build/buildkit-state \
+  --addr unix:///private/tmp/macos-buildkit.sock \
+  --otel-socket-path /private/tmp/macos-buildkit-trace.sock \
+  --containerd-worker=false
 ```
 
-The image is available at `127.0.0.1:5000/go-inf-server:smollm2`. Registry data
-persists under `dist/registry`. This prototype supports OCI image manifests,
-blob uploads using POST followed by PUT, and blob and manifest reads. It does
-not yet implement the full OCI Distribution API, such as chunked uploads,
-image indexes, or attestations.
+The [BuildKit prototype guide](docs/BUILDKIT_PROTOTYPE.md) explains the patch
+and its current Dockerfile limits.
 
-## Builder direction
+### 2. Build a Darwin image with Buildx
 
-The target workflow is an ordinary Dockerfile passed from the unmodified
-Docker CLI through Buildx remote to a host-local BuildKit service. The first
-CPU `RUN` probe works; details and reproduction steps are in
-[BUILDKIT_PROTOTYPE.md](BUILDKIT_PROTOTYPE.md). The
-[tiny Go web server example](examples/tiny-web/README.md) stages a macOS Go
-distribution inside the build image and compiles with that copy. A normal
-image-root view, Metal test, registry publishing, and building `go-inf-server`
-from source remain feasibility gates. See [ARCHITECTURE.md](ARCHITECTURE.md)
-for the design.
+In another terminal, register the remote builder once, then build the sample
+image. The named `go-toolchain` context supplies a macOS arm64 Go distribution
+to the build stage so its `RUN` instruction can compile the server.
 
-## Current scope
+```sh
+docker buildx create --name macnative --driver remote unix:///private/tmp/macos-buildkit.sock
+docker buildx build --builder macnative --platform darwin/arm64 \
+  --build-context "go-toolchain=$(go env GOROOT)" \
+  --progress plain \
+  --output type=oci,dest=.build/tiny-web.tar \
+  examples/tiny-web
+```
 
-The packager output is a local OCI layout, not an image loaded into Docker.
-The Buildx worker currently exports an OCI tarball. The local runner launches
-the tiny server from that tarball, and the small Docker API service supports
-`docker run` for it. General Dockerfile and Docker Engine compatibility remain
-future work. The image
-packager handles regular files in this
-application's payload; generic symlink and extended-attribute preservation is
-not implemented yet.
+The result is an OCI tarball at `.build/tiny-web.tar`. The build does not load
+the image into Docker Desktop. See the
+[example README](examples/tiny-web/README.md) for details about its Dockerfile
+and staged Go compiler.
 
-The existing server binary includes both a relative library search path and
-an absolute fallback to its source checkout. The image retains the relative
-`bin/` and `lib/` layout. The extracted application was tested on macOS 26.4.1
-with its SmolLM2 model: it started on the M2 Pro Metal device, returned HTTP 200
-from `/healthz`, and answered a short chat request. Running that Metal test
-requires normal macOS GPU access; the restricted development-tool sandbox
-cannot initialize the Metal command queue.
+### 3. Start the local Docker API service
 
-The image format follows the [OCI Image Specification](https://github.com/opencontainers/image-spec).
+Build the image runner and the small Docker API service:
+
+```sh
+go build -o .build/imgrun ./cmd/imgrun
+go build -o .build/macd ./cmd/macd
+```
+
+Start the service in another terminal and leave it running:
+
+```sh
+.build/macd -image .build/tiny-web.tar -tag tiny-web:latest \
+  -runner .build/imgrun -socket /private/tmp/macnative-docker.sock
+```
+
+Register its Docker context once:
+
+```sh
+docker context create macnative \
+  --docker host=unix:///private/tmp/macnative-docker.sock
+```
+
+The Buildx builder and Docker context happen to share the name `macnative`,
+but point to different sockets. The builder handles `docker buildx build`;
+the context handles `docker --context macnative run` and other runtime
+commands. After rebuilding the image, restart `macd` to register the new
+tarball.
+
+### 4. Run it and inspect requests
+
+```sh
+docker --context macnative run -d --name tiny-web tiny-web:latest
+curl http://127.0.0.1:8080/healthz
+docker --context macnative ps
+docker --context macnative logs tiny-web
+```
+
+The health request returns `ok`, and the server logs its method, URI, and
+client address. To watch later requests arrive, run this in another terminal:
+
+```sh
+docker --context macnative logs -f tiny-web
+```
+
+Then try another request, inspect the registered image, and clean up:
+
+```sh
+curl 'http://127.0.0.1:8080/healthz?probe=follow'
+docker --context macnative images
+docker --context macnative image inspect tiny-web:latest
+docker --context macnative rm -f tiny-web
+docker --context macnative ps -a
+```
+
+The server binds directly to host port 8080; this prototype does not support
+`-p`. Plain `docker ps` uses your default Docker context, which may be Docker
+Desktop. Use `--context macnative` to see containers managed by this runtime.
+The [runtime guide](docs/DOCKER_RUNTIME.md) covers foreground runs, stopping a
+container, and the supported Docker API calls.
+
+## What works and what is still experimental
+
+The patched BuildKit worker handles the sample's `COPY` and CPU `RUN` steps,
+but its shell still resolves absolute paths on the host instead of inside the
+image. The runtime registers one OCI tarball at startup and implements only
+the Docker API operations needed for the example. It keeps container records
+in memory and does not support `docker load`, image pull, volumes, port
+mapping, or general Dockerfile and Docker Engine behavior.
+
+The worker and runner use macOS Seatbelt to limit ordinary file writes.
+Host reads and network access remain available, so run only trusted build
+steps and images. A proper image-root view and a Metal test through this path
+are the next architectural gates. See the [build plan](docs/BUILDPLAN.md) and
+[architecture](docs/ARCHITECTURE.md) for progress and design decisions.
+
+## Other documentation
+
+The [image packager and local registry](docs/IMAGE_PACKAGER.md) page describes
+the separate `go-inf-server` prototype, which packages an already-built Metal
+application as an OCI layout. The [OCI runner](docs/RUNNER.md) can also launch
+the tiny web image without the Docker CLI service.

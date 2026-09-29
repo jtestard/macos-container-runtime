@@ -8,7 +8,7 @@ then issue `docker --context macnative run` on this Mac.
 ## Start the service
 
 First build the OCI tarball with the command in
-[examples/tiny-web/README.md](examples/tiny-web/README.md). From the repository
+[examples/tiny-web/README.md](../examples/tiny-web/README.md). From the repository
 root, build the runner and API service:
 
 ```sh

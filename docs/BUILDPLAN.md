@@ -13,7 +13,7 @@ and runs.
 | --- | --- | --- |
 | 1. Map BuildKit's layer path | Done | Dockerfile frontend creates LLB operations; solver requests snapshots and execution; exporter diffs snapshots into OCI layers. See [BUILDKIT_PROTOTYPE.md](BUILDKIT_PROTOTYPE.md). |
 | 2. Pin BuildKit and implement a Darwin worker | Done | Patch against BuildKit v0.24.0 registers a `darwin/arm64` worker using the native snapshotter, walking differ, and host shell executor. Patch applies to a pristine checkout and compiles on this Mac. |
-| 3. Connect Buildx and build a CPU `RUN` | Done | `docker buildx build --builder macnative --platform darwin/arm64 --no-cache` completed against [examples/cpu-run/Dockerfile](examples/cpu-run/Dockerfile) and exported an OCI tarball. |
+| 3. Connect Buildx and build a CPU `RUN` | Done | `docker buildx build --builder macnative --platform darwin/arm64 --no-cache` completed against [examples/cpu-run/Dockerfile](../examples/cpu-run/Dockerfile) and exported an OCI tarball. |
 | 4. Inspect the final OCI output | Done | Config declares `darwin/arm64`; one layer contains `result.txt` with `hello`. |
 | 5. Record limits and handoff | Done | [BUILDKIT_PROTOTYPE.md](BUILDKIT_PROTOTYPE.md) records host absolute-path behavior, unsupported operations, and untested Metal access. |
 
@@ -41,9 +41,9 @@ smoke test; the container runtime is not implemented yet.
 | Step | Status | Check |
 | --- | --- | --- |
 | 1. Stage Go inside the build image | Done | `COPY --from=go-toolchain` places the macOS Go distribution in the build stage; `RUN` invokes that staged `bin/go` with staged `GOROOT`. |
-| 2. Build through Buildx remote | Done | Buildx exported a multi-stage OCI image from [examples/tiny-web/Dockerfile](examples/tiny-web/Dockerfile). |
+| 2. Build through Buildx remote | Done | Buildx exported a multi-stage OCI image from [examples/tiny-web/Dockerfile](../examples/tiny-web/Dockerfile). |
 | 3. Inspect and smoke test | Done | Final image is `darwin/arm64` with two layers and only an arm64 Mach-O server; extracted server returned `ok` at `/healthz`. |
-| 4. Document exact commands and limits | Done | See [examples/tiny-web/README.md](examples/tiny-web/README.md). |
+| 4. Document exact commands and limits | Done | See [examples/tiny-web/README.md](../examples/tiny-web/README.md). |
 
 The first draft compiled with a host Go binary passed as a build argument. It
 proved `COPY` and native CPU execution, but did not meet the requirement that
