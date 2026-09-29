@@ -9,6 +9,10 @@ the existing `macd` Docker API service to start and supervise the local
 The control plane and Kubernetes scheduler remain inside Kind's Linux VM.
 The application binary runs as a macOS process on the host. This prototype
 uses the host network and supports one Pod with one container at a time.
+Multiple `macd` sockets can each serve one image, with one `mackube` process
+per socket. Give each adapter a distinct `-node-name` and `-slot` so a
+Deployment selects the node that has its image; the
+[voice cluster](VOICE_CLUSTER.md) uses this pattern for four native services.
 On this Mac, the example Deployment reached `1/1 Running` on `macnative`,
 returned `ok` from port 8081, and its deletion stopped the native process.
 The adapter also adopted a running Pod after an adapter restart. The node

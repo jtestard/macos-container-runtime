@@ -1,0 +1,16 @@
+{
+  "program": "python/cpython-3.12.13-macos-aarch64-none/bin/python3.12",
+  "cwd": "kokoro",
+  "args": ["-m", "uvicorn", "api.src.main:app", "--host", "127.0.0.1", "--port", "8880"],
+  "env": {
+    "HOME": "${ROOT}/home",
+    "TMPDIR": "${ROOT}/tmp",
+    "PYTHONPATH": "${ROOT}/site-packages:${ROOT}/kokoro:${ROOT}/kokoro/api",
+    "USE_GPU": "true",
+    "DEVICE_TYPE": "mps",
+    "PYTORCH_ENABLE_MPS_FALLBACK": "1",
+    "MODEL_DIR": "src/models",
+    "VOICES_DIR": "src/voices/v1_0",
+    "WEB_PLAYER_PATH": "${ROOT}/kokoro/web"
+  }
+}

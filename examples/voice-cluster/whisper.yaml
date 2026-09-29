@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: go-inf-server
+  name: whisper-stt
   namespace: livekit
 spec:
   replicas: 1
@@ -9,15 +9,15 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app: go-inf-server
+      app: whisper-stt
   template:
     metadata:
       labels:
-        app: go-inf-server
+        app: whisper-stt
     spec:
       nodeSelector:
         macnative.dev/runtime: darwin-arm64
-        macnative.dev/slot: llm
+        macnative.dev/slot: whisper
       tolerations:
         - key: macnative.dev/runtime
           operator: Equal
@@ -27,8 +27,8 @@ spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
       containers:
-        - name: server
-          image: go-inf-server:smollm2
+        - name: whisper
+          image: whisper-base-en:local
           imagePullPolicy: Never
           ports:
-            - containerPort: 8080
+            - containerPort: 8000

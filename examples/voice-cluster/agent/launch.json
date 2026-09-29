@@ -1,0 +1,8 @@
+{
+  "program": "bin/node",
+  "args": ["agent/dist/agent.js", "start"],
+  "env": {
+    "HOME": "${ROOT}/home",
+    "TMPDIR": "${ROOT}/tmp"
+  }
+}

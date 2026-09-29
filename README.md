@@ -146,9 +146,10 @@ handles one Pod with one container; Kubernetes Service routing is a later
 step.
 
 The [local voice cluster guide](docs/VOICE_CLUSTER.md) deploys LiveKit to a
-dedicated Kind cluster with UDP media forwarding and schedules the Metal
-`go-inf-server` image on its macOS virtual node. It also explains how to run
-the remaining speech and browser processes for the complete local voice loop.
+dedicated Kind cluster with UDP media forwarding. It schedules the Metal LLM,
+Whisper, Kokoro, and the voice agent as native macOS Pods, and the web UI as a
+Linux Pod. The [voice image guide](docs/VOICE_IMAGES.md) has the Buildx
+commands for those images.
 
 ## What works and what is still experimental
 

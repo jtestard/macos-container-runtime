@@ -152,7 +152,7 @@ index 0000000..f852053
 +	// This confines ordinary filesystem writes from RUN to the snapshot. It
 +	// intentionally leaves reads and system services available for native
 +	// tooling, so it is not a complete process isolation boundary.
-+	profile := fmt.Sprintf("(version 1)(allow default)(deny file-write*)(allow file-write* (subpath %s))", strconv.Quote(root))
++	profile := fmt.Sprintf("(version 1)(allow default)(deny file-write*)(allow file-write* (subpath %s))(allow file-write* (literal \"/dev/null\"))", strconv.Quote(root))
 +	args := append([]string{"-p", profile, "/bin/sh"}, process.Meta.Args[1:]...)
 +	command := exec.CommandContext(ctx, "/usr/bin/sandbox-exec", args...)
 +	command.Dir = cwd

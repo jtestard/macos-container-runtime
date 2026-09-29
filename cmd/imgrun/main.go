@@ -419,7 +419,7 @@ func launch(state, root string, cfg imageConfig) error {
 		env = append(env, entry)
 	}
 	env = append(env, "HOME="+home, "TMPDIR="+tmp)
-	profile := fmt.Sprintf("(version 1)(allow default)(deny file-write*)(allow file-write* (subpath %s))", strconv.Quote(state))
+	profile := fmt.Sprintf("(version 1)(allow default)(deny file-write*)(allow file-write* (subpath %s))(allow file-write* (literal \"/dev/null\"))", strconv.Quote(state))
 	args := append([]string{"-p", profile, executable}, cfg.Config.Entrypoint[1:]...)
 	args = append(args, cfg.Config.Cmd...)
 	cmd := exec.Command("/usr/bin/sandbox-exec", args...)
