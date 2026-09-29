@@ -21,7 +21,8 @@ Start the patched native BuildKit worker and register the `macnative` Buildx
 builder as described in the [root README](../../README.md). The source module
 requires Go 1.26. On this Mac, the downloaded Go toolchain's module-cache
 directories were read-only, so the local context uses a writable copy. Run
-these commands from this repository's root:
+these commands from this repository's root, replacing `APP_SOURCE` with your
+own checkout:
 
 ```sh
 APP_SOURCE='/absolute/path/to/go-inf-server'

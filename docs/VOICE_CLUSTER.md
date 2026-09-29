@@ -101,12 +101,12 @@ node so the scheduler selects the correct registered image:
 
 The LLM Deployment uses the model-free `llama-server` image. Its read-only
 `hostPath` points to
-`/absolute/path/to/go-inf-server/models/smollm2-360m` on the Mac;
-edit that path in the manifest if your model lives elsewhere. The image
+`/absolute/path/to/go-inf-server/models/smollm2-360m` on the Mac. Replace this
+placeholder in the manifest with the real absolute model directory. The image
 defaults to port 8082, so the Pod adds `--port 8080` to keep the voice agent's
 packaged `LLM_BASE_URL` valid. `llama-server` logs a duplicate-port warning;
 the appended value wins. If `.build/llama-server.tar` is absent, download the
-published tag as an OCI tarball using the [root README](../README.md#run-an-image-from-docker-hub)
+published tag as an OCI tarball using the [root README](../README.md#run-a-llama-server-with-metal)
 before starting `macd`. Deploy the three API services first. Their Pods
 report `Running` when the process starts; the LLM and Kokoro need more time
 to load models and Metal kernels. Check their HTTP endpoints before starting
@@ -128,7 +128,8 @@ the browser at the local LiveKit signaling address. Test API and speech paths:
 
 ```sh
 curl http://127.0.0.1:8090/config
-/absolute/path/to/go-inf-server/scripts/test-speech.sh
+SOURCE='/absolute/path/to/go-inf-server'
+"$SOURCE/scripts/test-speech.sh"
 ```
 
 The speech script transcribes a known sample, synthesizes PCM, and feeds that

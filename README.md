@@ -58,8 +58,9 @@ volume contract.
 
 ```sh
 docker --context macnative pull jtstormz/tiny-web:llama-server-001
+MODEL_DIR='/absolute/path/to/your/model-directory'
 docker --context macnative run -d --name llama-server \
-  -v '/absolute/path/to/go-inf-server/models/smollm2-360m:/app/models:ro' \
+  -v "$MODEL_DIR:/app/models:ro" \
   jtstormz/tiny-web:llama-server-001 \
   -m models/SmolLM2-360M-Instruct-Q8_0.gguf
 docker --context macnative logs llama-server
@@ -67,7 +68,7 @@ curl http://127.0.0.1:8082/health
 docker --context macnative rm -f llama-server
 ```
 
-Change the source of `-v` if your model directory is elsewhere. The server may
+Set `MODEL_DIR` to the directory containing the named GGUF. The server may
 return HTTP 503 from `/health` while loading the model. It listens on the
 Mac's port 8082, which must be free.
 

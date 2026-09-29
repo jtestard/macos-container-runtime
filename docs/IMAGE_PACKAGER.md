@@ -6,6 +6,7 @@ layout; it does not compile the application from a Dockerfile. This path is
 separate from the [Buildx example](../README.md) and its small Docker runtime.
 
 Run the commands below from the repository root.
+Replace the source path with your own checkout.
 
 ## Build the OCI layout
 

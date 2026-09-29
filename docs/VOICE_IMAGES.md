@@ -18,7 +18,8 @@ at `b4ef64b`, Whisper v1.9.1 at `f049fff`, and Node v20.11.1 with npm 10.2.4.
 ## Prepare build contexts
 
 The named contexts below make the toolchains and application sources explicit.
-They are build inputs, not paths the final image uses on the host.
+They are build inputs, not paths the final image uses on the host. Replace the
+source path with your own checkout.
 
 ```sh
 SOURCE="/absolute/path/to/go-inf-server"
@@ -59,14 +60,14 @@ git clone --branch v1.9.1 --depth 1 \
 ```
 
 The `cmake-toolchain` context must contain `bin/cmake` and its resource tree.
-This Mac uses
-`/absolute/path/to/CMake.app/Contents`.
+Set `CMAKE_TOOLCHAIN` to the `CMake.app/Contents` directory on your Mac.
 The Whisper Dockerfile currently names the Xcode compiler paths on this Mac;
 adjust them if Xcode is installed elsewhere.
 
 ## Build
 
 ```sh
+CMAKE_TOOLCHAIN='/absolute/path/to/CMake.app/Contents'
 docker --context desktop-linux buildx build --platform linux/arm64 \
   -t macvoice-web:local -f examples/voice-cluster/web/Dockerfile \
   --load .build/voice-web-context
@@ -74,7 +75,7 @@ docker --context desktop-linux buildx build --platform linux/arm64 \
 docker buildx build --builder macnative --platform darwin/arm64 \
   --build-context "whisper-source=$PWD/.build/whisper-src" \
   --build-context "whisper-model=$SOURCE/models/whisper" \
-  --build-context 'cmake-toolchain=/absolute/path/to/CMake.app/Contents' \
+  --build-context "cmake-toolchain=$CMAKE_TOOLCHAIN" \
   --progress plain --output type=oci,dest=.build/whisper-base-en.tar \
   examples/voice-cluster/whisper
 
