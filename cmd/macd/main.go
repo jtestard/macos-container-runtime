@@ -53,6 +53,7 @@ type container struct {
 	id      string
 	name    string
 	image   string
+	img     *storedImage
 	created time.Time
 	started time.Time
 	status  string
@@ -67,39 +68,32 @@ type container struct {
 }
 
 type daemon struct {
-	mu           sync.Mutex
-	containers   map[string]*container
-	image        string
-	imageID      string
-	imageSize    int64
-	imageCreated time.Time
-	tag          string
-	runner       string
-	config       imageConfig
+	mu         sync.Mutex
+	containers map[string]*container
+	images     map[string]*storedImage
+	store      string
+	runner     string
 }
 
 func main() {
-	image := flag.String("image", "", "local Buildx OCI tarball")
+	image := flag.String("image", "", "optional local OCI tarball to register at startup")
 	tag := flag.String("tag", "tiny-web:latest", "image name visible to Docker")
 	runner := flag.String("runner", ".build/imgrun", "path to the native image runner")
 	socket := flag.String("socket", "/private/tmp/macnative-docker.sock", "Docker Engine API Unix socket")
+	store := flag.String("store", "", "persistent image store (defaults to the user's Application Support directory)")
 	flag.Parse()
-	if *image == "" || flag.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "usage: macd -image <buildx-oci.tar> [-tag tiny-web:latest] [-runner .build/imgrun] [-socket path]")
+	if flag.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "usage: macd [-image local-oci.tar] [-tag name:tag] [-runner path] [-socket path] [-store path]")
 		os.Exit(2)
 	}
-	if err := serve(*image, *tag, *runner, *socket); err != nil {
+	if err := serve(*image, *tag, *runner, *socket, *store); err != nil {
 		fmt.Fprintln(os.Stderr, "macd:", err)
 		os.Exit(1)
 	}
 }
 
-func serve(image, tag, runner, socket string) error {
+func serve(image, tag, runner, socket, store string) error {
 	var err error
-	image, err = filepath.Abs(image)
-	if err != nil {
-		return err
-	}
 	runner, err = filepath.Abs(runner)
 	if err != nil {
 		return err
@@ -107,60 +101,19 @@ func serve(image, tag, runner, socket string) error {
 	if _, err := os.Stat(runner); err != nil {
 		return fmt.Errorf("runner: %w", err)
 	}
-	sourceImage := image
 	state, err := os.MkdirTemp("", "macnative-daemon-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(state)
-	f, err := os.Open(sourceImage)
+	d, err := newDaemon(runner, store)
 	if err != nil {
 		return err
 	}
-	info, err := f.Stat()
-	if err != nil {
-		f.Close()
-		return err
-	}
-	image = filepath.Join(state, "image.tar")
-	copyFile, err := os.OpenFile(image, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		f.Close()
-		return err
-	}
-	if _, err := io.Copy(copyFile, f); err != nil {
-		copyFile.Close()
-		f.Close()
-		return err
-	}
-	f.Close()
-	if err := copyFile.Close(); err != nil {
-		return err
-	}
-	cmd := exec.Command(runner, "-inspect", "-image", image)
-	out, err := cmd.Output()
-	if err != nil {
-		return fmt.Errorf("inspect image: %w", err)
-	}
-	var cfg imageConfig
-	if err := json.Unmarshal(out, &cfg); err != nil {
-		return err
-	}
-	if cfg.OS != "darwin" || cfg.Architecture != "arm64" {
-		return fmt.Errorf("image is %s/%s, expected darwin/arm64", cfg.OS, cfg.Architecture)
-	}
-	if !strings.HasPrefix(cfg.ID, "sha256:") {
-		return fmt.Errorf("invalid image config digest %q", cfg.ID)
-	}
-	d := &daemon{
-		containers:   make(map[string]*container),
-		image:        image,
-		imageID:      cfg.ID,
-		imageSize:    info.Size(),
-		imageCreated: cfg.Created,
-		tag:          tag,
-		runner:       runner,
-		config:       cfg,
+	if image != "" {
+		if err := d.addInitialImage(image, tag, state); err != nil {
+			return err
+		}
 	}
 	if conn, err := net.DialTimeout("unix", socket, 100*time.Millisecond); err == nil {
 		conn.Close()
@@ -186,7 +139,7 @@ func serve(image, tag, runner, socket string) error {
 		d.stopAll()
 		_ = server.Close()
 	}()
-	fmt.Fprintf(os.Stderr, "macd: serving %s as %s on unix://%s\n", sourceImage, tag, socket)
+	fmt.Fprintf(os.Stderr, "macd: serving %d images on unix://%s (store %s)\n", len(d.images), socket, d.store)
 	err = server.Serve(listener)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
@@ -213,16 +166,18 @@ func (d *daemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"Os": "darwin", "Arch": "arm64", "KernelVersion": "macOS",
 		})
 	case p == "/info" && r.Method == http.MethodGet:
+		d.mu.Lock()
+		containerCount, imageCount := len(d.containers), len(d.images)
+		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ID": "macnative", "Name": "macnative", "OSType": "darwin",
 			"Architecture": "arm64", "ServerVersion": "0.1.0",
-			"Containers": len(d.containers), "Images": 1,
+			"Containers": containerCount, "Images": imageCount,
 		})
 	case p == "/images/json" && r.Method == http.MethodGet:
-		writeJSON(w, http.StatusOK, []any{map[string]any{
-			"Id": d.imageID, "RepoTags": []string{d.tag},
-			"Size": d.imageSize, "Created": d.imageCreated.Unix(),
-		}})
+		d.listImages(w)
+	case p == "/images/create" && r.Method == http.MethodPost:
+		d.pull(w, r)
 	case strings.HasPrefix(p, "/images/") && strings.HasSuffix(p, "/json") && r.Method == http.MethodGet:
 		d.imageInspect(w, p)
 	case p == "/containers/create" && r.Method == http.MethodPost:
@@ -262,19 +217,22 @@ func writeError(w http.ResponseWriter, code int, message string) {
 
 func (d *daemon) imageInspect(w http.ResponseWriter, p string) {
 	name := strings.TrimSuffix(strings.TrimPrefix(p, "/images/"), "/json")
-	if name != d.tag && name != d.imageID && name != strings.TrimSuffix(d.tag, ":latest") {
+	d.mu.Lock()
+	img := d.imageForLocked(name)
+	d.mu.Unlock()
+	if img == nil {
 		writeError(w, http.StatusNotFound, "No such image: "+name)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"Id": d.imageID, "RepoTags": []string{d.tag}, "Size": d.imageSize,
-		"Created": d.imageCreated.Format(time.RFC3339Nano),
+		"Id": img.id, "RepoTags": []string{img.tag}, "Size": img.size,
+		"Created": img.created.Format(time.RFC3339Nano),
 		"Os":      "darwin", "Architecture": "arm64",
 		"Config": map[string]any{
-			"Entrypoint": d.config.Config.Entrypoint,
-			"Cmd":        d.config.Config.Cmd,
-			"WorkingDir": d.config.Config.WorkingDir,
-			"Env":        d.config.Config.Env,
+			"Entrypoint": img.config.Config.Entrypoint,
+			"Cmd":        img.config.Config.Cmd,
+			"WorkingDir": img.config.Config.WorkingDir,
+			"Env":        img.config.Config.Env,
 		},
 	})
 }
@@ -305,7 +263,10 @@ func (d *daemon) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if request.Image != d.tag && request.Image != strings.TrimSuffix(d.tag, ":latest") {
+	d.mu.Lock()
+	img := d.imageForLocked(request.Image)
+	d.mu.Unlock()
+	if img == nil {
 		writeError(w, http.StatusNotFound, "No such image: "+request.Image)
 		return
 	}
@@ -340,7 +301,7 @@ func (d *daemon) create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	d.containers[id] = &container{
-		id: id, name: name, image: d.tag, created: time.Now(),
+		id: id, name: name, image: request.Image, img: img, created: time.Now(),
 		status: "created", done: make(chan struct{}), watch: make(map[chan frame]struct{}),
 		binds: binds, command: append([]string(nil), request.Cmd...),
 	}
@@ -415,7 +376,7 @@ func (d *daemon) start(w http.ResponseWriter, c *container) {
 		writeError(w, http.StatusNotModified, "container is not in created state")
 		return
 	}
-	args := []string{"-image", d.image}
+	args := []string{"-image", c.img.path}
 	for _, bind := range c.binds {
 		encoded, err := json.Marshal(bind)
 		if err != nil {
@@ -587,7 +548,7 @@ func (d *daemon) wait(w http.ResponseWriter, r *http.Request, c *container) {
 func (d *daemon) inspect(w http.ResponseWriter, c *container) {
 	d.mu.Lock()
 	status, exitCode, started := c.status, c.exit, c.started
-	command := d.config.Config.Cmd
+	command := c.img.config.Config.Cmd
 	if len(c.command) != 0 {
 		command = c.command
 	}
@@ -601,16 +562,16 @@ func (d *daemon) inspect(w http.ResponseWriter, c *container) {
 	}
 	d.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"Id": c.id, "Name": "/" + c.name, "Image": d.imageID,
+		"Id": c.id, "Name": "/" + c.name, "Image": c.img.id,
 		"Created": c.created.Format(time.RFC3339Nano),
 		"State": map[string]any{
 			"Status": status, "Running": status == "running", "ExitCode": exitCode,
 			"Pid": pid, "StartedAt": started.Format(time.RFC3339Nano),
 		},
 		"Config": map[string]any{
-			"Image": c.image, "Entrypoint": d.config.Config.Entrypoint,
-			"Cmd": command, "WorkingDir": d.config.Config.WorkingDir,
-			"Env": d.config.Config.Env, "Tty": false,
+			"Image": c.image, "Entrypoint": c.img.config.Config.Entrypoint,
+			"Cmd": command, "WorkingDir": c.img.config.Config.WorkingDir,
+			"Env": c.img.config.Config.Env, "Tty": false,
 		},
 		"HostConfig":      map[string]any{"NetworkMode": "host", "Binds": binds},
 		"NetworkSettings": map[string]any{"Ports": map[string]any{}},
@@ -626,7 +587,7 @@ func (d *daemon) list(w http.ResponseWriter) {
 		}
 		items = append(items, map[string]any{
 			"Id": c.id, "Names": []string{"/" + c.name}, "Image": c.image,
-			"ImageID": d.imageID, "Command": strings.Join(d.config.Config.Entrypoint, " "),
+			"ImageID": c.img.id, "Command": strings.Join(c.img.config.Config.Entrypoint, " "),
 			"Created": c.created.Unix(), "State": c.status,
 			"Status": "Up", "Ports": []any{},
 		})

@@ -138,14 +138,14 @@ func run(image string, inspect bool, binds, command []string) error {
 	if selected == nil {
 		return errors.New("image has no darwin/arm64 manifest")
 	}
-	if selected.MediaType != "application/vnd.oci.image.manifest.v1+json" {
+	if selected.MediaType != "application/vnd.oci.image.manifest.v1+json" && selected.MediaType != "application/vnd.docker.distribution.manifest.v2+json" {
 		return fmt.Errorf("unsupported manifest media type %q", selected.MediaType)
 	}
 	var manifest imageManifest
 	if err := readJSONBlob(layout, *selected, &manifest); err != nil {
 		return err
 	}
-	if manifest.Config.MediaType != "application/vnd.oci.image.config.v1+json" {
+	if manifest.Config.MediaType != "application/vnd.oci.image.config.v1+json" && manifest.Config.MediaType != "application/vnd.docker.container.image.v1+json" {
 		return fmt.Errorf("unsupported config media type %q", manifest.Config.MediaType)
 	}
 	var config imageConfig
@@ -310,7 +310,7 @@ func imagePath(root, name string) (string, error) {
 }
 
 func applyLayer(layout, root string, d descriptor, expectedDiffID string) error {
-	if d.MediaType != "application/vnd.oci.image.layer.v1.tar+gzip" {
+	if d.MediaType != "application/vnd.oci.image.layer.v1.tar+gzip" && d.MediaType != "application/vnd.docker.image.rootfs.diff.tar.gzip" {
 		return fmt.Errorf("unsupported layer media type %q", d.MediaType)
 	}
 	if !strings.HasPrefix(expectedDiffID, "sha256:") || !validHexDigest(strings.TrimPrefix(expectedDiffID, "sha256:")) {

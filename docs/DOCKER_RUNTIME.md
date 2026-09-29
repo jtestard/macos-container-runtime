@@ -1,7 +1,7 @@
 # Docker CLI runtime prototype
 
 `cmd/macd` exposes a small Docker Engine API subset over a Unix socket. It
-registers one local `darwin/arm64` OCI tarball under a chosen tag and uses
+pulls `darwin/arm64` images from a registry into a persistent store and uses
 [`imgrun`](RUNNER.md) to execute it. The installed, unmodified Docker CLI can
 then issue `docker --context macnative run` on this Mac. Both the tiny web
 server and [Metal-backed `go-inf-server`](../examples/go-inf-server/README.md)
@@ -9,31 +9,37 @@ have been run through this path.
 
 ## Start the service
 
-First build the OCI tarball with the command in
-[examples/tiny-web/README.md](../examples/tiny-web/README.md). From the repository
-root, build the runner and API service:
+From the repository root, install the runner and API service:
 
 ```sh
-mkdir -p .build
-go build -o .build/imgrun ./cmd/imgrun
-go build -o .build/macd ./cmd/macd
+./install.sh
+./scripts/enable-macd.sh
 ```
 
-Start the service in its own terminal:
+`install.sh` builds both binaries under `~/Library/Application Support/macnative/bin`,
+prepares `~/Library/Application Support/macnative/images`, and creates the Docker
+context. `scripts/enable-macd.sh` installs a user LaunchAgent with `RunAtLoad`
+and `KeepAlive`. It starts at login, independently of Docker Desktop. Use
+`./scripts/disable-macd.sh` to stop and remove the agent. Logs are in the
+same Application Support directory under `logs/`.
+
+For a manual service in its own terminal, run:
 
 ```sh
-.build/macd -image .build/tiny-web.tar -tag tiny-web:latest \
-  -runner .build/imgrun -socket /private/tmp/macnative-docker.sock
+"$HOME/Library/Application Support/macnative/bin/macd" \
+  -runner "$HOME/Library/Application Support/macnative/bin/imgrun" \
+  -store "$HOME/Library/Application Support/macnative/images" \
+  -socket /private/tmp/macnative-docker.sock
 ```
 
-The command above registers the tiny web image. The
-[`go-inf-server` example](../examples/go-inf-server/README.md) shows the tag and
-tarball arguments for the real Metal workload. The service takes a private
-copy of the tarball at startup. Restart it after building a new image. It
-stores container records in memory for this first version; stopping the
-service stops running containers and removes the socket.
+Stop the LaunchAgent before starting the manual service on the same socket.
+The older `-image local.tar -tag name:tag` flags remain available to register
+a local OCI tarball at startup. The service takes a private copy of that
+tarball. Pulled images persist across restarts; container records remain in
+memory, and stopping the service stops its running containers.
 
-Register a Docker context once. This does not change your default context:
+The installer registers a Docker context once. This does not change your
+default context; to create it manually:
 
 ```sh
 docker context create macnative \
@@ -64,6 +70,24 @@ keep using `docker --context macnative ...` on each command. Neither approach
 combines the two daemons' container lists.
 
 ## Run the image
+
+Pull a trusted Darwin image before running it:
+
+```sh
+docker --context macnative pull jtstormz/tiny-web:llama-server-001
+docker --context macnative images
+docker --context macnative image inspect jtstormz/tiny-web:llama-server-001
+```
+
+The registry selection is fixed to `darwin/arm64`. Docker CLI credentials
+from `docker login` and its credential helper are used for authenticated
+registries. Linux-only images fail with a platform error. Pulled images are
+stored in the user's macnative image store. `docker pull --platform darwin/arm64`
+is also accepted.
+
+The following commands use the locally built `tiny-web:latest` example. Start
+`macd` manually with `-image .build/tiny-web.tar -tag tiny-web:latest`, or use
+the pulled image name above instead.
 
 For a foreground process:
 
@@ -101,7 +125,7 @@ server, waits for runner cleanup, and removes the container record in one
 command. It also closes an active `logs -f` stream.
 
 The tested health response is `ok`. `docker run`, `ps`, `logs`, `logs -f`,
-`stop`, `rm`, `rm -f`, `images`, and `image inspect` worked through this context
+`stop`, `rm`, `rm -f`, `pull`, `images`, and `image inspect` worked through this context
 with Docker CLI 28.0.4. The foreground CLI attached to native process output and completed after
 `docker stop`. The image ID reported by `image inspect` is the OCI config
 digest, and its creation time comes from the OCI image config.
@@ -109,9 +133,9 @@ digest, and its creation time comes from the OCI image config.
 ## Current boundaries
 
 The service implements only the Engine API requests needed for this workflow.
-It accepts one image supplied at startup; there is no `docker load`, image
-pull, registry lookup, port mapping, TTY, stdin, entrypoint override, `--rm`,
-or daemon persistence yet. It accepts command arguments and read-only `-v`
+It accepts multiple pulled images and one optional image supplied at startup.
+There is no `docker load`, port mapping, TTY, stdin, entrypoint override,
+`--rm`, or container persistence yet. It accepts command arguments and read-only `-v`
 binds whose host source already exists. Bind targets must be absent in the
 image. Unsupported create options fail explicitly. The tiny web example binds
 directly to host port 8080, so no `-p` option is needed or supported.

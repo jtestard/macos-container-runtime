@@ -17,73 +17,55 @@ design and current progress.
 
 You need an Apple Silicon Mac, Go 1.24 or later, Git, and the Docker CLI. A
 Docker daemon is not needed to run an existing Darwin image. Clone the
-repository and build the two runtime programs:
+repository and install the two runtime programs:
 
 ```sh
 git clone https://github.com/jtestard/macos-container-runtime.git
 cd macos-container-runtime
-mkdir -p .build
-go build -o .build/imgrun ./cmd/imgrun
-go build -o .build/macd ./cmd/macd
-docker context create macnative \
-  --docker host=unix:///private/tmp/macnative-docker.sock
+./install.sh
+./scripts/enable-macd.sh
 ```
 
-Create the Docker context only once. `imgrun` opens an OCI image and launches
-its macOS program; `macd` serves the Docker API over the local Unix socket.
+`install.sh` builds and installs `macd` and `imgrun` in your user Application
+Support directory, prepares an image store, and creates the `macnative` Docker
+context. The separate startup script loads a user LaunchAgent, so `macd` starts
+at login and restarts if it exits. Docker Desktop does not need to be running.
+Run `./scripts/disable-macd.sh` to stop and remove the LaunchAgent. See the
+[runtime guide](docs/DOCKER_RUNTIME.md) for manual startup and configuration.
 
 ## Run an image from Docker Hub
 
-The runtime currently accepts an OCI tarball, with one image registered when
-`macd` starts. It does not yet implement `docker pull`, so use
-[`crane`](https://github.com/google/go-containerregistry/tree/main/cmd/crane)
-to download a Darwin image as an OCI layout. Install it with
-`brew install crane`, then run:
-
-The reusable, model-free llama.cpp server is
-`jtstormz/tiny-web:llama-server-001`. Its [example guide](docs/LLAMA_SERVER_BUILDPLAN.md)
-shows how to start it with a model directory mounted read-only. The commands
-below demonstrate the existing Go inference image with SmolLM2 bundled.
-The [image composition note](docs/LLAMA_SERVER_IMAGE.md) records its build
-inputs, final OCI contents, and runtime volume contract.
+The example uses the model-free llama.cpp image. The GGUF stays in a directory
+on the Mac and is mounted read-only at run time. See the
+[image composition note](docs/LLAMA_SERVER_IMAGE.md) for its build inputs and
+volume contract.
 
 ```sh
-IMAGE=jtstormz/tiny-web:go-inf-server-smollm2-001
-LAYOUT=$(mktemp -d .build/hub-image.XXXXXX)
-crane pull --platform darwin/arm64 --format=oci "$IMAGE" "$LAYOUT"
-tar --format=ustar -cf .build/hub-image.tar -C "$LAYOUT" oci-layout index.json blobs
-.build/imgrun -inspect -image .build/hub-image.tar
+IMAGE=jtstormz/tiny-web:llama-server-001
+docker --context macnative pull "$IMAGE"
+docker --context macnative images
 ```
 
-The inspection command checks the image before starting it and should report
-`"os":"darwin"` and `"architecture":"arm64"`. The SmolLM2 image includes a
-model, so downloading and starting it may take time.
-
-Start the Docker API service in one terminal:
+Run and inspect the image with the regular Docker CLI:
 
 ```sh
-.build/macd -image .build/hub-image.tar -tag "$IMAGE" \
-  -runner .build/imgrun -socket /private/tmp/macnative-docker.sock
-```
-
-In another terminal, run and inspect the image with the regular Docker CLI:
-
-```sh
-docker --context macnative run -d --name go-inf-server \
-  jtstormz/tiny-web:go-inf-server-smollm2-001
+docker --context macnative run -d --name llama-server \
+  -v '/absolute/path/to/go-inf-server/models/smollm2-360m:/app/models:ro' \
+  jtstormz/tiny-web:llama-server-001 \
+  -m models/SmolLM2-360M-Instruct-Q8_0.gguf
 docker --context macnative ps
-docker --context macnative logs go-inf-server
-curl http://127.0.0.1:8080/healthz
-docker --context macnative rm -f go-inf-server
+docker --context macnative logs llama-server
+curl http://127.0.0.1:8082/health
+docker --context macnative rm -f llama-server
 ```
 
-The server binds directly to the Mac's port 8080; `-p` is not supported. Always
+Change the source of `-v` if your model directory is elsewhere. The server may
+return HTTP 503 from `/health` while loading the model. It binds directly to
+the Mac's port 8082; `-p` is not supported. Always
 specify `--context macnative` for runtime commands. You can run
 `docker context use macnative` to make it your default. Plain `docker ps` may otherwise
-show containers managed by Docker Desktop. To run a different image, stop
-`macd`, pull and package that image, then restart `macd` with its tarball and
-tag. For example, `jtstormz/tiny-web:dev-00` can be substituted for `IMAGE`
-when that tag is available on Docker Hub.
+show containers managed by Docker Desktop. Pull additional Darwin images with
+the same context; pulled images remain available after `macd` restarts.
 
 The [runtime guide](docs/DOCKER_RUNTIME.md) lists the supported Docker
 commands and current limitations.
@@ -130,11 +112,11 @@ adapter can connect to any cluster through a dedicated kubeconfig. The
 
 ## Current limits
 
-`macd` keeps container records in memory and serves one OCI tarball at a time.
+`macd` keeps container records in memory and pulled images on disk.
 The Docker API supports a narrow set of commands including `run`, `ps`,
 `logs`, `stop`, and `rm`. Read-only `-v` binds and command arguments are
 supported; see the [model-free llama-server example](docs/LLAMA_SERVER_BUILDPLAN.md).
-There is no native image pull, `docker load`, or port mapping yet. The
+`docker pull` accepts `darwin/arm64` images. There is no `docker load` or port mapping yet. The
 builder's shell still resolves absolute paths on the host rather than inside
 the image. The worker and runner use
 macOS Seatbelt to limit ordinary file writes, while host reads and network
@@ -158,7 +140,9 @@ docker buildx build --builder macnative --platform darwin/arm64 \
   examples/tiny-web
 ```
 
-Start `macd` with `-image .build/tiny-web.tar -tag tiny-web:latest`, then run
+For this local tarball, stop the LaunchAgent with `./scripts/disable-macd.sh`
+and start `macd` manually with `-image .build/tiny-web.tar -tag tiny-web:latest`
+and `-runner .build/imgrun` on the usual socket. Then run
 `docker --context macnative run -d --name tiny-web tiny-web:latest`. The
 [Metal server example](examples/go-inf-server/README.md) has the full build
 and run workflow for the cgo application and model image.
