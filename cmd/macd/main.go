@@ -615,11 +615,27 @@ func (d *daemon) stop(w http.ResponseWriter, c *container) {
 }
 
 func (d *daemon) remove(w http.ResponseWriter, r *http.Request, c *container) {
+	force := r.URL.Query().Get("force") == "1" || strings.EqualFold(r.URL.Query().Get("force"), "true")
 	d.mu.Lock()
 	if c.status == "running" {
+		if !force {
+			d.mu.Unlock()
+			writeError(w, http.StatusConflict, "stop container before removing it")
+			return
+		}
+		process, done := c.cmd.Process, c.done
 		d.mu.Unlock()
-		writeError(w, http.StatusConflict, "stop container before removing it")
-		return
+		if err := process.Signal(syscall.SIGUSR1); err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			writeError(w, http.StatusInternalServerError, "process did not exit within 10 seconds")
+			return
+		}
+		d.mu.Lock()
 	}
 	delete(d.containers, c.id)
 	d.mu.Unlock()

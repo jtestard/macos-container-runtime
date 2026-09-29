@@ -433,12 +433,18 @@ func launch(state, root string, cfg imageConfig) error {
 	}
 	fmt.Fprintf(os.Stderr, "imgrun: started pid %d from %s\n", cmd.Process.Pid, workdir)
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGUSR1)
 	done := make(chan struct{})
 	go func() {
 		select {
 		case sig := <-signals:
 			if unixSig, ok := sig.(syscall.Signal); ok {
+				// The daemon uses SIGUSR1 for Docker's force-removal path.
+				// Kill the sandboxed process group but let this runner
+				// reap it and remove the temporary filesystem.
+				if unixSig == syscall.SIGUSR1 {
+					unixSig = syscall.SIGKILL
+				}
 				_ = syscall.Kill(-cmd.Process.Pid, unixSig)
 			}
 		case <-done:
