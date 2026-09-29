@@ -1,9 +1,11 @@
 # Docker CLI runtime prototype
 
 `cmd/macd` exposes a small Docker Engine API subset over a Unix socket. It
-registers one local `darwin/arm64` OCI tarball as `tiny-web:latest` and uses
+registers one local `darwin/arm64` OCI tarball under a chosen tag and uses
 [`imgrun`](RUNNER.md) to execute it. The installed, unmodified Docker CLI can
-then issue `docker --context macnative run` on this Mac.
+then issue `docker --context macnative run` on this Mac. Both the tiny web
+server and [Metal-backed `go-inf-server`](../examples/go-inf-server/README.md)
+have been run through this path.
 
 ## Start the service
 
@@ -24,9 +26,12 @@ Start the service in its own terminal:
   -runner .build/imgrun -socket /private/tmp/macnative-docker.sock
 ```
 
-The service takes a private copy of the tarball at startup. Restart it after
-building a new image. It stores container records in memory for this first
-version; stopping the service stops running containers and removes the socket.
+The command above registers the tiny web image. The
+[`go-inf-server` example](../examples/go-inf-server/README.md) shows the tag and
+tarball arguments for the real Metal workload. The service takes a private
+copy of the tarball at startup. Restart it after building a new image. It
+stores container records in memory for this first version; stopping the
+service stops running containers and removes the socket.
 
 Register a Docker context once. This does not change your default context:
 
@@ -112,7 +117,9 @@ needed or supported.
 
 The existing runner still has no image-root filesystem mapping. Its Seatbelt
 profile limits ordinary file writes to the temporary run directory, while
-host reads and network access remain available. Docker CLI compatibility here
+host reads and network access remain available. Runtime processes use the
+Mac's host network; the service does not provide a bridge or network namespace.
+Docker CLI compatibility here
 is an API surface for this trusted-image prototype, not Docker Engine
 isolation or full Docker behavior.
 

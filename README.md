@@ -5,12 +5,13 @@ on an Apple Silicon Mac, without a Linux VM. The longer-term goal is to run
 trusted applications that can use macOS frameworks and Metal while keeping a
 familiar Dockerfile and Docker CLI workflow.
 
-Today, the working example is a small Go HTTP server. A patched macOS BuildKit
-worker builds it from a Dockerfile through `docker buildx build` and exports an
-OCI image. A local runtime starts that image through
-`docker --context macnative run`. This is an early prototype: it supports a
-small set of Docker commands and has limited filesystem isolation. Metal
-access through this build and run path has not yet been tested.
+The walkthrough below starts with a small Go HTTP server. A patched macOS
+BuildKit worker builds it from a Dockerfile through `docker buildx build` and
+exports an OCI image. A local runtime starts that image through
+`docker --context macnative run`. The same path has now built and run the
+[Metal-backed `go-inf-server`](examples/go-inf-server/README.md) from source.
+This is still an early prototype with a small set of Docker commands and
+limited filesystem isolation.
 
 ## Try the tiny web server
 
@@ -125,19 +126,29 @@ Desktop. Use `--context macnative` to see containers managed by this runtime.
 The [runtime guide](docs/DOCKER_RUNTIME.md) covers foreground runs, stopping a
 container, and the supported Docker API calls.
 
+## Build the Metal-backed server
+
+The [`go-inf-server` example](examples/go-inf-server/README.md) uses a separate
+source checkout as a named build context. Its Dockerfile stages Go 1.26,
+compiles the cgo server with llama.cpp headers and dylibs, and exports an image
+with the SmolLM2 model. The guide has the complete Buildx command and Docker
+CLI run steps. On this Mac, the image loaded all 33 model layers onto the M2
+Pro GPU and answered a chat request.
+
 ## What works and what is still experimental
 
-The patched BuildKit worker handles the sample's `COPY` and CPU `RUN` steps,
-but its shell still resolves absolute paths on the host instead of inside the
-image. The runtime registers one OCI tarball at startup and implements only
+The patched BuildKit worker handles the sample's `COPY` and CPU `RUN` steps
+and the cgo compile for `go-inf-server`, but its shell still resolves absolute
+paths on the host instead of inside the image. The runtime registers one OCI
+tarball at startup and implements only
 the Docker API operations needed for the example. It keeps container records
 in memory and does not support `docker load`, image pull, volumes, port
 mapping, or general Dockerfile and Docker Engine behavior.
 
 The worker and runner use macOS Seatbelt to limit ordinary file writes.
 Host reads and network access remain available, so run only trusted build
-steps and images. A proper image-root view and a Metal test through this path
-are the next architectural gates. See the [build plan](docs/BUILDPLAN.md) and
+steps and images. A proper image-root view remains the next architectural
+gate. See the [build plan](docs/BUILDPLAN.md) and
 [architecture](docs/ARCHITECTURE.md) for progress and design decisions.
 
 ## Other documentation

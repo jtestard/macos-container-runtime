@@ -63,10 +63,10 @@ process isolation, root filesystem semantics, or a Docker daemon.
 | Image packager (`cmd/imgbuild`) | Packages one prebuilt `go-inf-server` payload into an OCI layout with two layers. The extracted payload has run against the host Metal device. | No Dockerfile parsing, build context, `RUN`, or Docker CLI endpoint. |
 | Registry (`cmd/registry`) | Loopback OCI Distribution subset with persistent blobs and tags. The sample image was uploaded and its tag and manifest read back. | Incomplete Distribution API, including chunked uploads, indexes, attestations, and broad client compatibility. |
 | Publisher (`cmd/imgpush`) | Uploads the existing sample layout to the registry. | Temporary bridge; not the intended build interface. |
-| BuildKit service | Pinned v0.24.0 prototype accepts Buildx remote on a Unix socket and exports a CPU `RUN` image. | General Dockerfile and registry push behavior are unvalidated. |
-| Native build worker | Experimental Darwin worker runs host `/bin/sh` under Seatbelt with writes limited to a snapshot directory. | No image-root view, full containment boundary, or verified Metal access. |
-| Local runner (`cmd/imgrun`) | Launches the tiny Buildx OCI tarball on this Mac and forwards its process output and signals. | Only regular files and directories, relative entrypoint, no image-root view or Docker API. |
-| Docker API service (`cmd/macd`) | Registers one local image and supports `docker --context macnative run`, `ps`, `logs`, `stop`, and `rm` for the tiny example. | Narrow Engine API subset, no image store, port mapping, or Docker isolation. |
+| BuildKit service | Pinned v0.24.0 prototype accepts Buildx remote on a Unix socket and exports both the CPU sample and the cgo `go-inf-server` image. | General Dockerfile and registry push behavior are unvalidated. |
+| Native build worker | Experimental Darwin worker runs host `/bin/sh` under Seatbelt with writes limited to a snapshot directory. | No image-root view, full containment boundary, or verified Metal access inside `RUN`; Metal has been verified when running the exported image. |
+| Local runner (`cmd/imgrun`) | Launches the tiny and `go-inf-server` Buildx OCI tarballs on this Mac; the latter loaded SmolLM2 through Metal. | Only regular files and directories, relative entrypoint, no image-root view or Docker API. |
+| Docker API service (`cmd/macd`) | Registers one local image and supports `docker --context macnative run`, `ps`, `logs`, `stop`, and `rm`; both examples have run through it. | Narrow Engine API subset, no image store, port mapping, or Docker isolation. |
 
 Registry data is under `dist/registry`; the existing sample OCI layout is under
 `dist/go-inf-server-smollm2`. Both are local artifacts, not a completed image

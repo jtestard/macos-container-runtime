@@ -47,4 +47,7 @@ files and directories. It rejects symlinks, hardlinks, whiteouts, absolute
 entrypoints, and non-root image users. It does not fetch from the registry,
 provide network or process namespaces, or run the Metal application yet. The
 separate [Docker API service](DOCKER_RUNTIME.md) wraps this runner to support
-`docker --context macnative run` for the tiny image.
+`docker --context macnative run` for a registered image. The
+[`go-inf-server` image](../examples/go-inf-server/README.md) has also been
+launched through this runner: llama.cpp loaded SmolLM2 on the M2 Pro Metal
+device, `/healthz` returned HTTP 200, and a chat request returned `pong`.

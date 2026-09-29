@@ -5,9 +5,26 @@ through an unmodified Docker CLI using Buildx remote. This is an integration
 probe, not a complete container builder or runtime.
 
 **Progress as of 2026-09-29:** The CPU `RUN` worker, image-contained Go build
-example, local runner, Docker CLI `run`, request logs, and force removal are
-working. The next architectural gate is a proper image-root view for builds
-and runs.
+example, local runner, and Docker CLI runtime are working. Buildx now also
+compiles `go-inf-server` from source, and the native runtime has run it on
+Metal. The next architectural gate is a proper image-root view for builds and
+runs.
+
+## Completed task: build `go-inf-server` from source
+
+**Goal:** Use the existing Buildx remote worker to compile the real cgo server
+from its source checkout and export a runnable `darwin/arm64` OCI image with
+its llama.cpp dylibs, configuration, and SmolLM2 model.
+
+| Step | Status | Check |
+| --- | --- | --- |
+| 1. Map build inputs and constraints | Done | `go.mod` requires Go 1.26; server uses cgo plus staged llama.cpp headers and dylibs; the selected GGUF is 369 MB. |
+| 2. Stage a compatible Go toolchain | Done | Downloaded Go 1.26 and supplied a writable copy as a named Buildx context. |
+| 3. Write the Dockerfile | Done | Selects server sources, headers, dylibs, config, and one model from the checkout; compiles with cgo in `RUN`; final stage copies only runtime payload. |
+| 4. Build and inspect OCI output | Done | Buildx exported a 361 MB OCI tar; config declares `darwin/arm64`; extracted entrypoint is arm64 Mach-O; final root has only `/app` payload, with no toolchain. |
+| 5. Run and document | Done | Direct runner and `docker --context macnative run -d` loaded SmolLM2 on M2 Pro Metal, offloaded 33/33 layers, served HTTP 200 from `/healthz`, and returned `pong` from chat. See [the example guide](../examples/go-inf-server/README.md). |
+
+## Completed task: first CPU worker probe
 
 | Step | Status | Evidence or next action |
 | --- | --- | --- |
@@ -15,21 +32,24 @@ and runs.
 | 2. Pin BuildKit and implement a Darwin worker | Done | Patch against BuildKit v0.24.0 registers a `darwin/arm64` worker using the native snapshotter, walking differ, and host shell executor. Patch applies to a pristine checkout and compiles on this Mac. |
 | 3. Connect Buildx and build a CPU `RUN` | Done | `docker buildx build --builder macnative --platform darwin/arm64 --no-cache` completed against [examples/cpu-run/Dockerfile](../examples/cpu-run/Dockerfile) and exported an OCI tarball. |
 | 4. Inspect the final OCI output | Done | Config declares `darwin/arm64`; one layer contains `result.txt` with `hello`. |
-| 5. Record limits and handoff | Done | [BUILDKIT_PROTOTYPE.md](BUILDKIT_PROTOTYPE.md) records host absolute-path behavior, unsupported operations, and untested Metal access. |
+| 5. Record limits and handoff | Done | [BUILDKIT_PROTOTYPE.md](BUILDKIT_PROTOTYPE.md) records host absolute-path behavior and unsupported operations. Metal has since been tested with `go-inf-server`. |
 
 ## Next feasibility gates after this probe
 
 1. Give `RUN` an image-root filesystem view while retaining macOS frameworks
    and Metal access. This determines whether normal Dockerfile path semantics
    are viable without a Linux VM.
-2. Test a minimal native Metal command under the chosen execution environment.
+2. Test a minimal Metal operation inside BuildKit `RUN`. The exported
+   `go-inf-server` image accessed Metal at runtime; the build executor has not
+   yet done so.
 3. Expand Dockerfile coverage (`COPY`, base images, toolchains, ownership,
    mounts) and verify layer behavior.
 4. Publish a Buildx image to the loopback registry and verify pull by digest.
 
 The first two gates are architectural. The current Seatbelt profile limits
 ordinary file writes to the snapshot, but still allows host reads and system
-services and does not remap `/`.
+services and does not remap `/`. The `go-inf-server` runtime test demonstrated
+Metal access with these current limits.
 
 ## Completed task: tiny Go web server image
 
