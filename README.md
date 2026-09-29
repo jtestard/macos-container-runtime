@@ -33,39 +33,49 @@ at login and restarts if it exits. Docker Desktop does not need to be running.
 Run `./scripts/disable-macd.sh` to stop and remove the LaunchAgent. See the
 [runtime guide](docs/DOCKER_RUNTIME.md) for manual startup and configuration.
 
-## Run an image from Docker Hub
+## Run a simple web server
 
-The example uses the model-free llama.cpp image. The GGUF stays in a directory
-on the Mac and is mounted read-only at run time. See the
+Pull the small `darwin/arm64` Go server from Docker Hub and run it with the
+regular Docker CLI:
+
+```sh
+docker --context macnative pull jtstormz/tiny-web:dev-001
+docker --context macnative run -d --name tiny-web jtstormz/tiny-web:dev-001
+curl http://127.0.0.1:8080/healthz
+docker --context macnative logs tiny-web
+docker --context macnative rm -f tiny-web
+```
+
+The server listens on the Mac's port 8080, which must be free. Its source is
+in [examples/tiny-web](examples/tiny-web/README.md).
+
+## Run a llama server with Metal
+
+This model-free llama.cpp image runs natively on macOS and uses Metal. Keep the
+GGUF in a directory on the Mac and mount it read-only into the image. See the
 [image composition note](docs/LLAMA_SERVER_IMAGE.md) for its build inputs and
 volume contract.
 
 ```sh
-IMAGE=jtstormz/tiny-web:llama-server-001
-docker --context macnative pull "$IMAGE"
-docker --context macnative images
-```
-
-Run and inspect the image with the regular Docker CLI:
-
-```sh
+docker --context macnative pull jtstormz/tiny-web:llama-server-001
 docker --context macnative run -d --name llama-server \
   -v '/absolute/path/to/go-inf-server/models/smollm2-360m:/app/models:ro' \
   jtstormz/tiny-web:llama-server-001 \
   -m models/SmolLM2-360M-Instruct-Q8_0.gguf
-docker --context macnative ps
 docker --context macnative logs llama-server
 curl http://127.0.0.1:8082/health
 docker --context macnative rm -f llama-server
 ```
 
 Change the source of `-v` if your model directory is elsewhere. The server may
-return HTTP 503 from `/health` while loading the model. It binds directly to
-the Mac's port 8082; `-p` is not supported. Always
+return HTTP 503 from `/health` while loading the model. It listens on the
+Mac's port 8082, which must be free.
+
+Both examples use the Mac's network directly; `-p` is not supported. Always
 specify `--context macnative` for runtime commands. You can run
-`docker context use macnative` to make it your default. Plain `docker ps` may otherwise
-show containers managed by Docker Desktop. Pull additional Darwin images with
-the same context; pulled images remain available after `macd` restarts.
+`docker context use macnative` to make it your default. Plain `docker ps` may
+otherwise show containers managed by Docker Desktop. Pulled images remain
+available after `macd` restarts.
 
 The [runtime guide](docs/DOCKER_RUNTIME.md) lists the supported Docker
 commands and current limitations.
