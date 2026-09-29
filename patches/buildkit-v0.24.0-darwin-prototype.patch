@@ -1,0 +1,347 @@
+diff --git a/cmd/buildkitd/main.go b/cmd/buildkitd/main.go
+index 7caa1b4..643700d 100644
+--- a/cmd/buildkitd/main.go
++++ b/cmd/buildkitd/main.go
+@@ -238,7 +238,7 @@ func main() {
+ 	app.Action = func(c *cli.Context) error {
+ 		// TODO: On Windows this always returns -1. The actual "are you admin" check is very Windows-specific.
+ 		// See https://github.com/golang/go/issues/28804#issuecomment-505326268 for the "short" version.
+-		if os.Geteuid() > 0 {
++		if runtime.GOOS == "linux" && os.Geteuid() > 0 {
+ 			return errors.New("rootless mode requires to be executed as the mapped root in a user namespace; you may use RootlessKit for setting up the namespace")
+ 		}
+ 		ctx, cancel := context.WithCancelCause(appcontext.Context())
+diff --git a/cmd/buildkitd/main_darwin_worker.go b/cmd/buildkitd/main_darwin_worker.go
+new file mode 100644
+index 0000000..1b29432
+--- /dev/null
++++ b/cmd/buildkitd/main_darwin_worker.go
+@@ -0,0 +1,30 @@
++//go:build darwin
++
++package main
++
++import (
++	"context"
++
++	"github.com/moby/buildkit/worker"
++	"github.com/moby/buildkit/worker/base"
++	"github.com/moby/buildkit/worker/darwin"
++	"github.com/urfave/cli"
++)
++
++func init() {
++	registerWorkerInitializer(workerInitializer{fn: darwinWorkerInitializer, priority: 0})
++}
++
++func darwinWorkerInitializer(_ *cli.Context, common workerInitializerOpt) ([]worker.Worker, error) {
++	opt, err := darwin.NewWorkerOpt(common.config.Root)
++	if err != nil {
++		return nil, err
++	}
++	opt.BuildkitVersion = getBuildkitVersion()
++	opt.RegistryHosts = resolverFunc(common.config)
++	w, err := base.NewWorker(context.Background(), opt)
++	if err != nil {
++		return nil, err
++	}
++	return []worker.Worker{w}, nil
++}
+diff --git a/cmd/buildkitd/main_unix.go b/cmd/buildkitd/main_unix.go
+index c503de5..6d660a2 100644
+--- a/cmd/buildkitd/main_unix.go
++++ b/cmd/buildkitd/main_unix.go
+@@ -6,6 +6,7 @@ import (
+ 	"crypto/tls"
+ 	"net"
+ 	"os"
++	"runtime"
+ 	"syscall"
+ 
+ 	"github.com/containerd/containerd/v2/pkg/sys"
+@@ -48,6 +49,18 @@ func listenFD(addr string, tlsConfig *tls.Config) (net.Listener, error) {
+ }
+ 
+ func getLocalListener(listenerPath, _ string) (net.Listener, error) {
++	if runtime.GOOS == "darwin" {
++		_ = os.Remove(listenerPath)
++		l, err := net.Listen("unix", listenerPath)
++		if err != nil {
++			return nil, err
++		}
++		if err := os.Chmod(listenerPath, 0600); err != nil {
++			l.Close()
++			return nil, err
++		}
++		return l, nil
++	}
+ 	uid := os.Getuid()
+ 	l, err := sys.GetLocalListener(listenerPath, uid, uid)
+ 	if err != nil {
+diff --git a/executor/darwinexecutor/executor.go b/executor/darwinexecutor/executor.go
+new file mode 100644
+index 0000000..f852053
+--- /dev/null
++++ b/executor/darwinexecutor/executor.go
+@@ -0,0 +1,99 @@
++//go:build darwin
++
++package darwinexecutor
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"strconv"
++	"strings"
++
++	"github.com/moby/buildkit/executor"
++	resourcestypes "github.com/moby/buildkit/executor/resources/types"
++)
++
++// Executor is an early BuildKit integration probe. It executes shell-form RUN
++// instructions with the host shell and a snapshot directory as its working
++// directory. Seatbelt restricts file writes to that directory, but this does
++// not provide a chroot, arbitrary mounts, or Dockerfile absolute-path semantics.
++type Executor struct{}
++
++func New() executor.Executor { return &Executor{} }
++
++func (e *Executor) Run(ctx context.Context, _ string, rootfs executor.Mount, mounts []executor.Mount, process executor.ProcessInfo, started chan<- struct{}) (resourcestypes.Recorder, error) {
++	if len(mounts) != 0 {
++		return nil, fmt.Errorf("darwin prototype: RUN mounts are not supported")
++	}
++	if process.Meta.User != "" && process.Meta.User != "root" {
++		return nil, fmt.Errorf("darwin prototype: USER is not supported")
++	}
++	if process.Meta.ReadonlyRootFS {
++		return nil, fmt.Errorf("darwin prototype: readonly root is not supported")
++	}
++	if len(process.Meta.Args) < 2 || process.Meta.Args[0] != "/bin/sh" || process.Meta.Args[1] != "-c" {
++		return nil, fmt.Errorf("darwin prototype: only shell-form RUN is supported")
++	}
++	ref, err := rootfs.Src.Mount(ctx, false)
++	if err != nil {
++		return nil, err
++	}
++	rootMounts, release, err := ref.Mount()
++	if err != nil {
++		return nil, err
++	}
++	defer release()
++	if len(rootMounts) != 1 || rootMounts[0].Type != "bind" {
++		return nil, fmt.Errorf("darwin prototype: expected a native snapshot directory")
++	}
++	root := rootMounts[0].Source
++	if process.Meta.Cwd != "" && !filepath.IsAbs(process.Meta.Cwd) {
++		return nil, fmt.Errorf("darwin prototype: relative working directory is not supported")
++	}
++	cwd := filepath.Join(root, strings.TrimPrefix(filepath.Clean(process.Meta.Cwd), string(filepath.Separator)))
++	if process.Meta.Cwd == "" || process.Meta.Cwd == "/" {
++		cwd = root
++	}
++	rel, err := filepath.Rel(root, cwd)
++	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
++		return nil, fmt.Errorf("darwin prototype: working directory escapes snapshot")
++	}
++	if err := os.MkdirAll(cwd, 0755); err != nil {
++		return nil, err
++	}
++	// This confines ordinary filesystem writes from RUN to the snapshot. It
++	// intentionally leaves reads and system services available for native
++	// tooling, so it is not a complete process isolation boundary.
++	profile := fmt.Sprintf("(version 1)(allow default)(deny file-write*)(allow file-write* (subpath %s))", strconv.Quote(root))
++	args := append([]string{"-p", profile, "/bin/sh"}, process.Meta.Args[1:]...)
++	command := exec.CommandContext(ctx, "/usr/bin/sandbox-exec", args...)
++	command.Dir = cwd
++	command.Env = process.Meta.Env
++	command.Stdin = process.Stdin
++	command.Stdout = process.Stdout
++	command.Stderr = process.Stderr
++	if err := command.Start(); err != nil {
++		return nil, err
++	}
++	if started != nil {
++		close(started)
++	}
++	err = command.Wait()
++	return noopRecorder{}, err
++}
++
++func (e *Executor) Exec(context.Context, string, executor.ProcessInfo) error {
++	return fmt.Errorf("darwin prototype: Exec is not supported")
++}
++
++type noopRecorder struct{}
++
++func (noopRecorder) Start() {}
++func (noopRecorder) Close() {}
++func (noopRecorder) CloseAsync(next func(context.Context) error) error {
++	return next(context.Background())
++}
++func (noopRecorder) Wait() error                               { return nil }
++func (noopRecorder) Samples() (*resourcestypes.Samples, error) { return &resourcestypes.Samples{}, nil }
+diff --git a/snapshot/localmounter_darwin.go b/snapshot/localmounter_darwin.go
+index 9acf3a9..5fb14f9 100644
+--- a/snapshot/localmounter_darwin.go
++++ b/snapshot/localmounter_darwin.go
+@@ -2,7 +2,6 @@ package snapshot
+ 
+ import (
+ 	"os"
+-	"slices"
+ 
+ 	"github.com/containerd/containerd/v2/core/mount"
+ 	"github.com/pkg/errors"
+@@ -23,10 +22,9 @@ func (lm *localMounter) Mount() (string, error) {
+ 	}
+ 
+ 	if len(lm.mounts) == 1 && lm.mounts[0].Type == "bind" {
+-		ro := slices.Contains(lm.mounts[0].Options, "ro")
+-		if !ro {
+-			return lm.mounts[0].Source, nil
+-		}
++		// The prototype uses the native snapshot directory directly. macOS has no
++		// unprivileged bind mount; readonly is not enforced at this boundary yet.
++		return lm.mounts[0].Source, nil
+ 	}
+ 
+ 	dir, err := os.MkdirTemp("", "buildkit-mount")
+diff --git a/vendor/github.com/containerd/containerd/v2/core/mount/temp.go b/vendor/github.com/containerd/containerd/v2/core/mount/temp.go
+index ba37ba5..4a63d1d 100644
+--- a/vendor/github.com/containerd/containerd/v2/core/mount/temp.go
++++ b/vendor/github.com/containerd/containerd/v2/core/mount/temp.go
+@@ -20,6 +20,7 @@ import (
+ 	"context"
+ 	"fmt"
+ 	"os"
++	"runtime"
+ 
+ 	"github.com/containerd/log"
+ )
+@@ -34,6 +35,11 @@ var tempMountLocation = getTempDir()
+ // same upper / work dirs. Since it's a temp mount, avoid using that option here
+ // if found.
+ func WithTempMount(ctx context.Context, mounts []Mount, f func(root string) error) (err error) {
++	if runtime.GOOS == "darwin" && len(mounts) == 1 && mounts[0].Type == "bind" {
++		// Prototype: native snapshots are directories and macOS has no
++		// unprivileged bind mount. Read-only is not enforced here.
++		return f(mounts[0].Source)
++	}
+ 	root, uerr := os.MkdirTemp(tempMountLocation, "containerd-mount")
+ 	if uerr != nil {
+ 		return fmt.Errorf("failed to create temp dir: %w", uerr)
+diff --git a/vendor/github.com/tonistiigi/fsutil/diskwriter_unix.go b/vendor/github.com/tonistiigi/fsutil/diskwriter_unix.go
+index ccd554a..7dc3c0f 100644
+--- a/vendor/github.com/tonistiigi/fsutil/diskwriter_unix.go
++++ b/vendor/github.com/tonistiigi/fsutil/diskwriter_unix.go
+@@ -5,6 +5,7 @@ package fsutil
+ 
+ import (
+ 	"os"
++	"runtime"
+ 	"syscall"
+ 
+ 	"github.com/containerd/continuity/sysx"
+@@ -17,8 +18,10 @@ func rewriteMetadata(p string, stat *types.Stat) error {
+ 		sysx.Setxattr(p, key, value, 0)
+ 	}
+ 
+-	if err := os.Lchown(p, int(stat.Uid), int(stat.Gid)); err != nil {
+-		return errors.WithStack(err)
++	if runtime.GOOS != "darwin" {
++		if err := os.Lchown(p, int(stat.Uid), int(stat.Gid)); err != nil {
++			return errors.WithStack(err)
++		}
+ 	}
+ 
+ 	if os.FileMode(stat.Mode)&os.ModeSymlink == 0 {
+diff --git a/worker/darwin/darwin.go b/worker/darwin/darwin.go
+new file mode 100644
+index 0000000..a1cfbbb
+--- /dev/null
++++ b/worker/darwin/darwin.go
+@@ -0,0 +1,81 @@
++//go:build darwin
++
++package darwin
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++
++	"github.com/containerd/containerd/v2/core/diff/apply"
++	ctdmetadata "github.com/containerd/containerd/v2/core/metadata"
++	"github.com/containerd/containerd/v2/core/snapshots"
++	"github.com/containerd/containerd/v2/plugins/content/local"
++	"github.com/containerd/containerd/v2/plugins/diff/walking"
++	"github.com/containerd/containerd/v2/plugins/snapshots/native"
++	"github.com/containerd/platforms"
++	"github.com/moby/buildkit/cache/metadata"
++	"github.com/moby/buildkit/executor/darwinexecutor"
++	containerdsnapshot "github.com/moby/buildkit/snapshot/containerd"
++	"github.com/moby/buildkit/util/leaseutil"
++	"github.com/moby/buildkit/util/network/netproviders"
++	"github.com/moby/buildkit/worker/base"
++	"github.com/moby/buildkit/worker/label"
++	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
++	bolt "go.etcd.io/bbolt"
++)
++
++// NewWorkerOpt wires the existing containerd native snapshotter and BuildKit
++// cache/export plumbing to a host-local Darwin executor.
++func NewWorkerOpt(root string) (base.WorkerOpt, error) {
++	var opt base.WorkerOpt
++	root = filepath.Join(root, "darwin-native")
++	if err := os.MkdirAll(root, 0700); err != nil {
++		return opt, err
++	}
++	store, err := local.NewStore(filepath.Join(root, "content"))
++	if err != nil {
++		return opt, err
++	}
++	snap, err := native.NewSnapshotter(filepath.Join(root, "snapshots"))
++	if err != nil {
++		return opt, err
++	}
++	db, err := bolt.Open(filepath.Join(root, "containerdmeta.db"), 0600, nil)
++	if err != nil {
++		return opt, err
++	}
++	mdb := ctdmetadata.NewDB(db, store, map[string]snapshots.Snapshotter{"native": snap})
++	if err := mdb.Init(context.Background()); err != nil {
++		return opt, err
++	}
++	content := containerdsnapshot.NewContentStore(mdb.ContentStore(), "buildkit")
++	id, err := base.ID(root)
++	if err != nil {
++		return opt, err
++	}
++	md, err := metadata.NewStore(filepath.Join(root, "metadata_v2.db"))
++	if err != nil {
++		return opt, err
++	}
++	net, _, err := netproviders.Providers(netproviders.Opt{Mode: "host"})
++	if err != nil {
++		return opt, err
++	}
++	return base.WorkerOpt{
++		ID:               id,
++		Root:             root,
++		Labels:           map[string]string{label.Executor: "darwin-host", label.Snapshotter: "native"},
++		Platforms:        []ocispecs.Platform{platforms.DefaultSpec()},
++		NetworkProviders: net,
++		Executor:         darwinexecutor.New(),
++		Snapshotter:      containerdsnapshot.NewSnapshotter("native", mdb.Snapshotter("native"), "buildkit", nil),
++		ContentStore:     content,
++		Applier:          apply.NewFileSystemApplier(content),
++		Differ:           walking.NewWalkingDiff(content),
++		LeaseManager:     leaseutil.WithNamespace(ctdmetadata.NewLeaseManager(mdb), "buildkit"),
++		GarbageCollect:   mdb.GarbageCollect,
++		MetadataStore:    md,
++		MountPoolRoot:    filepath.Join(root, "cachemounts"),
++	}, nil
++}
