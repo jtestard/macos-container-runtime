@@ -1,31 +1,29 @@
 # Native llama-server image build plan
 
-Goal: build upstream llama.cpp `llama-server` as a usable `darwin/arm64`
-OCI image with Metal enabled, independent of the Go inference wrapper.
+Goal: provide an upstream llama.cpp `llama-server` image for `darwin/arm64`
+with Metal, with no model bundled by default. Supply a GGUF through a read-only
+volume when starting the container.
 
 ## Progress
 
-- [x] Inspect the current builder, runner, llama.cpp source, and model.
-- [x] Choose a static server build with embedded Metal code and a bundled
-  SmolLM2 GGUF. Port 8082 avoids the current Go service on 8080.
-- [x] Build the image with the native Buildx worker.
-- [x] Run the image with `imgrun` and `docker run`; verify health and an
-  OpenAI compatible chat completion. The running process loaded the Apple
-  AGX Metal driver; the build embedded the Metal library and requested 99
-  GPU layers. Exact offloaded layer count was not measured.
-- [x] Document the build and run commands and remaining runtime limits.
-- [x] Publish the verified image to the existing private Docker Hub repository
-  and inspect its `darwin/arm64` OCI manifest.
+- [x] Build a static `llama-server` binary with the Metal library embedded.
+- [x] Remove the model from the final image. The OCI tarball is 7.3 MB.
+- [x] Accept read-only `docker run -v` binds and command arguments in `macd`
+  and `imgrun`.
+- [x] Run with SmolLM2 mounted from the sibling project; verify `/health`,
+  `docker ps`, `docker logs`, `docker inspect`, and a chat completion.
+- [x] Check the bind parser and runner path validation with focused Go tests.
+- [x] Publish and inspect the model-free image in the private Docker Hub
+  repository.
 
-The runtime currently has no model mount or command override. This first
-image therefore includes the model and default arguments. A reusable image
-with a model chosen at `docker run` time depends on those runtime features.
+The earlier `jtstormz/tiny-web:llama-server-smollm2-001` image contains a
+model. It remains an explicit, versioned example rather than the default.
 
 ## Build
 
-Use the sibling `go-inf-server` checkout, with its pinned llama.cpp source and
-SmolLM2 model. The source context must keep the nested `tools/mtmd/models`
-headers. The final image contains neither CMake nor the source tree.
+The sibling `go-inf-server` checkout supplies the pinned llama.cpp source.
+Keep the nested `tools/mtmd/models` headers when staging it. The final image
+contains only the server binary.
 
 ```sh
 SOURCE="/absolute/path/to/go-inf-server"
@@ -40,49 +38,45 @@ cat > .build/llama-source/.dockerignore <<'EOF'
 tools/ui/node_modules/
 EOF
 
-# Start an isolated native BuildKit worker in another terminal:
+# In another terminal, run a native BuildKit worker:
 .build/buildkitd-macos --root .build/llama-buildkit-state \
   --addr unix:///private/tmp/macos-buildkit-llama.sock \
   --otel-socket-path /private/tmp/macos-buildkit-llama-trace.sock \
   --containerd-worker=false
 
-# Register this builder once, if it is not already listed by docker buildx ls:
+# Register once if docker buildx ls does not list macnative-llama:
 docker buildx create --name macnative-llama --driver remote \
   unix:///private/tmp/macos-buildkit-llama.sock
 
 docker buildx build --builder macnative-llama --platform darwin/arm64 \
   --build-context "llama-source=$PWD/.build/llama-source" \
-  --build-context "llama-model=$SOURCE/models/smollm2-360m" \
   --build-context 'cmake-toolchain=/absolute/path/to/CMake.app/Contents' \
-  --progress plain --output type=oci,dest=.build/llama-server-smollm2.tar \
+  --progress plain --output type=oci,dest=.build/llama-server.tar \
   examples/llama-server
 ```
 
-The Dockerfile uses the Xcode compiler on this Mac. The native BuildKit worker
-currently runs `RUN` in a host snapshot, so the toolchain and compiler paths
-must be available there. An isolated state directory and socket keep this
-builder separate from the existing `macnative` instance.
+The Dockerfile uses this Mac's Xcode compiler. The current native BuildKit
+worker runs `RUN` in a host snapshot, so that compiler path must exist on the
+Mac. The CMake executable comes from the named build context.
 
-## Run
+## Run with a model volume
 
-Run directly:
+Start a local daemon for the image:
 
 ```sh
-.build/imgrun -image .build/llama-server-smollm2.tar
+.build/macd -image .build/llama-server.tar -tag llama-server:local \
+  -runner .build/imgrun -socket /private/tmp/macnative-llama-docker.sock
 ```
 
-Or register the image with a separate local Docker-compatible daemon, then
-use the ordinary Docker CLI against that socket:
+In another terminal, mount a model directory and name the model to load:
 
 ```sh
-# Terminal 1
-.build/macd -image .build/llama-server-smollm2.tar \
-  -tag llama-server:smollm2 -runner .build/imgrun \
-  -socket /private/tmp/macnative-llama-docker.sock
+SOURCE="/absolute/path/to/go-inf-server"
+docker -H unix:///private/tmp/macnative-llama-docker.sock run -d \
+  --name llama-server \
+  -v "$SOURCE/models/smollm2-360m:/app/models:ro" \
+  llama-server:local -m models/SmolLM2-360M-Instruct-Q8_0.gguf
 
-# Terminal 2
-docker -H unix:///private/tmp/macnative-llama-docker.sock \
-  run -d --name llama-server llama-server:smollm2
 docker -H unix:///private/tmp/macnative-llama-docker.sock ps
 docker -H unix:///private/tmp/macnative-llama-docker.sock logs llama-server
 curl http://127.0.0.1:8082/health
@@ -91,19 +85,31 @@ curl -H 'Content-Type: application/json' \
   http://127.0.0.1:8082/v1/chat/completions
 ```
 
-The verified health response was `{"status":"ok"}`; the chat response was
-`Hello!`. The native runtime shares the Mac network. Its `docker run` endpoint
-currently lacks `-p`, volume mounts, command overrides, and multiple image
-registration in one daemon. The image listens only on Mac loopback port 8082.
+The verified responses were `{"status":"ok"}` and `Hello!`. On startup,
+`/health` can return HTTP 503 while the model loads. The process opened the
+GGUF on the host volume and loaded the Apple AGX Metal driver. The image
+requests 99 GPU layers; the exact number offloaded was not measured.
 
-## Private Docker Hub image
+The current runner does not remap `/` into the image. Mount the directory at
+`/app/models` and pass a **relative** model path such as `models/file.gguf`.
+Only read-only `-v` binds are supported. The target must be absent in the image,
+and the sandbox denies writes outside its temporary state. The runtime still
+does not support `-p`, entrypoint overrides, or `docker pull`; it uses the Mac's
+network namespace and binds loopback port 8082.
 
-The image is published as
-`jtstormz/tiny-web:llama-server-smollm2-001`, OCI index digest
+## Distribution
+
+The default model-free image is `jtstormz/tiny-web:llama-server-001`, OCI
+index digest
+`sha256:ce40c59fa3cba71fce515d6dc5be37fd17ae6c97482e74f0ddfa8c0bb577ad05`.
+`docker buildx imagetools inspect` confirmed its `darwin/arm64` manifest. The
+existing private `tiny-web` repository is reused because this Docker Hub plan
+does not allow another private repository. The local daemon still needs an OCI
+tarball; follow the [main README's download steps](../README.md#run-an-image-from-docker-hub)
+with this tag, then start `macd` and use the volume-backed `docker run` command
+above with the matching tag.
+
+The prior bundled image remains available at
+`jtstormz/tiny-web:llama-server-smollm2-001`, index digest
 `sha256:150e7b1b558f7443abff12969bcf8be1c1ae491cfda833b95112b3533138549d`.
-`docker buildx imagetools inspect` confirmed a `darwin/arm64` manifest. The
-current Docker Hub plan allows only the existing private `tiny-web` repository,
-so the tag distinguishes this standalone server from the tiny web and Go
-inference images. The native `macd` still needs a local OCI tarball; see the
-[main README](../README.md#run-an-image-from-docker-hub) for its `crane pull`
-and `macd` workflow. Use this image tag and port 8082 in those commands.
+For registry downloads, see the [main README](../README.md#run-an-image-from-docker-hub).

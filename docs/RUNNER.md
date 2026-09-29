@@ -44,8 +44,10 @@ still refer to the host. Only trusted images should be run with this prototype.
 
 This first runner accepts OCI tarballs with gzip layers containing regular
 files and directories. It rejects symlinks, hardlinks, whiteouts, absolute
-entrypoints, and non-root image users. It does not fetch from the registry,
-provide network or process namespaces, or run the Metal application yet. The
+entrypoints, and non-root image users. It accepts read-only host binds and
+command arguments through `-bind` and `-cmd`; a bind target must be absent in
+the image. It does not fetch from the registry or provide network or process
+namespaces. The
 separate [Docker API service](DOCKER_RUNTIME.md) wraps this runner to support
 `docker --context macnative run` for a registered image. The
 [`go-inf-server` image](../examples/go-inf-server/README.md) has also been

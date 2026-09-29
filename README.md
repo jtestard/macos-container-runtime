@@ -40,6 +40,11 @@ The runtime currently accepts an OCI tarball, with one image registered when
 to download a Darwin image as an OCI layout. Install it with
 `brew install crane`, then run:
 
+The reusable, model-free llama.cpp server is
+`jtstormz/tiny-web:llama-server-001`. Its [example guide](docs/LLAMA_SERVER_BUILDPLAN.md)
+shows how to start it with a model directory mounted read-only. The commands
+below demonstrate the existing Go inference image with SmolLM2 bundled.
+
 ```sh
 IMAGE=jtstormz/tiny-web:go-inf-server-smollm2-001
 LAYOUT=$(mktemp -d .build/hub-image.XXXXXX)
@@ -125,9 +130,11 @@ adapter can connect to any cluster through a dedicated kubeconfig. The
 
 `macd` keeps container records in memory and serves one OCI tarball at a time.
 The Docker API supports a narrow set of commands including `run`, `ps`,
-`logs`, `stop`, and `rm`. There is no native image pull, `docker load`, volume
-mounting, or port mapping yet. The builder's shell still resolves absolute
-paths on the host rather than inside the image. The worker and runner use
+`logs`, `stop`, and `rm`. Read-only `-v` binds and command arguments are
+supported; see the [model-free llama-server example](docs/LLAMA_SERVER_BUILDPLAN.md).
+There is no native image pull, `docker load`, or port mapping yet. The
+builder's shell still resolves absolute paths on the host rather than inside
+the image. The worker and runner use
 macOS Seatbelt to limit ordinary file writes, while host reads and network
 access remain available.
 

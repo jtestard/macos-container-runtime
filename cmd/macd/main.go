@@ -44,6 +44,11 @@ type frame struct {
 	data   []byte
 }
 
+type bindMount struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+}
+
 type container struct {
 	id      string
 	name    string
@@ -57,6 +62,8 @@ type container struct {
 	logs    []frame
 	logSize int
 	watch   map[chan frame]struct{}
+	binds   []bindMount
+	command []string
 }
 
 type daemon struct {
@@ -290,6 +297,7 @@ func (d *daemon) create(w http.ResponseWriter, r *http.Request) {
 		HostConfig struct {
 			AutoRemove   bool            `json:"AutoRemove"`
 			Binds        []string        `json:"Binds"`
+			Mounts       json.RawMessage `json:"Mounts"`
 			PortBindings json.RawMessage `json:"PortBindings"`
 		} `json:"HostConfig"`
 	}
@@ -301,9 +309,18 @@ func (d *daemon) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "No such image: "+request.Image)
 		return
 	}
-	if len(request.Cmd) != 0 || len(request.Entrypoint) != 0 || request.Tty || request.OpenStdin || request.HostConfig.AutoRemove || len(request.HostConfig.Binds) != 0 || (len(request.HostConfig.PortBindings) != 0 && string(request.HostConfig.PortBindings) != "null" && string(request.HostConfig.PortBindings) != "{}") {
-		writeError(w, http.StatusBadRequest, "this prototype supports the image default command without TTY, stdin, binds, port mappings, or --rm")
+	if len(request.Entrypoint) != 0 || request.Tty || request.OpenStdin || request.HostConfig.AutoRemove || (len(request.HostConfig.Mounts) != 0 && string(request.HostConfig.Mounts) != "null" && string(request.HostConfig.Mounts) != "[]") || (len(request.HostConfig.PortBindings) != 0 && string(request.HostConfig.PortBindings) != "null" && string(request.HostConfig.PortBindings) != "{}") {
+		writeError(w, http.StatusBadRequest, "this prototype supports read-only -v binds but not --mount, entrypoint overrides, TTY, stdin, port mappings, or --rm")
 		return
+	}
+	binds := make([]bindMount, 0, len(request.HostConfig.Binds))
+	for _, raw := range request.HostConfig.Binds {
+		bind, err := parseBind(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		binds = append(binds, bind)
 	}
 	id, err := newID()
 	if err != nil {
@@ -325,9 +342,22 @@ func (d *daemon) create(w http.ResponseWriter, r *http.Request) {
 	d.containers[id] = &container{
 		id: id, name: name, image: d.tag, created: time.Now(),
 		status: "created", done: make(chan struct{}), watch: make(map[chan frame]struct{}),
+		binds: binds, command: append([]string(nil), request.Cmd...),
 	}
 	d.mu.Unlock()
 	writeJSON(w, http.StatusCreated, map[string]any{"Id": id, "Warnings": []string{}})
+}
+
+func parseBind(raw string) (bindMount, error) {
+	parts := strings.Split(raw, ":")
+	if len(parts) != 3 || parts[2] != "ro" || !filepath.IsAbs(parts[0]) || !filepath.IsAbs(parts[1]) || filepath.Clean(parts[1]) == "/" {
+		return bindMount{}, fmt.Errorf("unsupported bind %q: use /absolute/host/path:/absolute/image/path:ro", raw)
+	}
+	info, err := os.Stat(parts[0])
+	if err != nil || (!info.IsDir() && !info.Mode().IsRegular()) {
+		return bindMount{}, fmt.Errorf("bind source must be an existing file or directory: %q", parts[0])
+	}
+	return bindMount{Source: parts[0], Target: parts[1]}, nil
 }
 
 func (d *daemon) find(id string) *container {
@@ -385,7 +415,20 @@ func (d *daemon) start(w http.ResponseWriter, c *container) {
 		writeError(w, http.StatusNotModified, "container is not in created state")
 		return
 	}
-	cmd := exec.Command(d.runner, "-image", d.image)
+	args := []string{"-image", d.image}
+	for _, bind := range c.binds {
+		encoded, err := json.Marshal(bind)
+		if err != nil {
+			d.mu.Unlock()
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		args = append(args, "-bind", string(encoded))
+	}
+	for _, arg := range c.command {
+		args = append(args, "-cmd", arg)
+	}
+	cmd := exec.Command(d.runner, args...)
 	cmd.Stdout = &logWriter{d: d, c: c, stream: 1}
 	cmd.Stderr = &logWriter{d: d, c: c, stream: 2}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -544,6 +587,14 @@ func (d *daemon) wait(w http.ResponseWriter, r *http.Request, c *container) {
 func (d *daemon) inspect(w http.ResponseWriter, c *container) {
 	d.mu.Lock()
 	status, exitCode, started := c.status, c.exit, c.started
+	command := d.config.Config.Cmd
+	if len(c.command) != 0 {
+		command = c.command
+	}
+	binds := make([]string, 0, len(c.binds))
+	for _, bind := range c.binds {
+		binds = append(binds, bind.Source+":"+bind.Target+":ro")
+	}
 	pid := 0
 	if c.cmd != nil && status == "running" {
 		pid = c.cmd.Process.Pid
@@ -558,10 +609,10 @@ func (d *daemon) inspect(w http.ResponseWriter, c *container) {
 		},
 		"Config": map[string]any{
 			"Image": c.image, "Entrypoint": d.config.Config.Entrypoint,
-			"Cmd": d.config.Config.Cmd, "WorkingDir": d.config.Config.WorkingDir,
+			"Cmd": command, "WorkingDir": d.config.Config.WorkingDir,
 			"Env": d.config.Config.Env, "Tty": false,
 		},
-		"HostConfig":      map[string]any{"NetworkMode": "host"},
+		"HostConfig":      map[string]any{"NetworkMode": "host", "Binds": binds},
 		"NetworkSettings": map[string]any{"Ports": map[string]any{}},
 	})
 }

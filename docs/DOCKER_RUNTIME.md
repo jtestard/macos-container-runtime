@@ -110,14 +110,17 @@ digest, and its creation time comes from the OCI image config.
 
 The service implements only the Engine API requests needed for this workflow.
 It accepts one image supplied at startup; there is no `docker load`, image
-pull, registry lookup, volume mounting, port mapping, TTY, stdin, command
-override, `--rm`, or daemon persistence yet. Unsupported create options fail
-explicitly. The server binds directly to host port 8080, so no `-p` option is
-needed or supported.
+pull, registry lookup, port mapping, TTY, stdin, entrypoint override, `--rm`,
+or daemon persistence yet. It accepts command arguments and read-only `-v`
+binds whose host source already exists. Bind targets must be absent in the
+image. Unsupported create options fail explicitly. The tiny web example binds
+directly to host port 8080, so no `-p` option is needed or supported.
 
 The existing runner still has no image-root filesystem mapping. Its Seatbelt
 profile limits ordinary file writes to the temporary run directory, while
-host reads and network access remain available. Runtime processes use the
+host reads and network access remain available. A mounted directory is
+addressed through a relative path from the image working directory because
+the runner does not remap absolute image paths. Runtime processes use the
 Mac's host network; the service does not provide a bridge or network namespace.
 Docker CLI compatibility here
 is an API surface for this trusted-image prototype, not Docker Engine

@@ -59,15 +59,31 @@ type imageConfig struct {
 	} `json:"rootfs"`
 }
 
+type bindMount struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+}
+
+type stringFlags []string
+
+func (s *stringFlags) String() string { return strings.Join(*s, ",") }
+func (s *stringFlags) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
+
 func main() {
 	image := flag.String("image", "", "Buildx OCI tarball to run")
 	inspect := flag.Bool("inspect", false, "print validated image config as JSON without running")
+	var binds, command stringFlags
+	flag.Var(&binds, "bind", "read-only bind as JSON with source and target; repeatable")
+	flag.Var(&command, "cmd", "command argument after image entrypoint; repeatable")
 	flag.Parse()
 	if *image == "" || flag.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "usage: imgrun -image <buildx-oci.tar>")
+		fmt.Fprintln(os.Stderr, "usage: imgrun -image <buildx-oci.tar> [-bind JSON]... [-cmd ARG]...")
 		os.Exit(2)
 	}
-	if err := run(*image, *inspect); err != nil {
+	if err := run(*image, *inspect, binds, command); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
@@ -80,7 +96,7 @@ func main() {
 	}
 }
 
-func run(image string, inspect bool) error {
+func run(image string, inspect bool, binds, command []string) error {
 	state, err := os.MkdirTemp("", "macnative-run-")
 	if err != nil {
 		return err
@@ -153,7 +169,16 @@ func run(image string, inspect bool) error {
 			return fmt.Errorf("layer %d: %w", i+1, err)
 		}
 	}
-	return launch(state, rootfs, config)
+	for _, raw := range binds {
+		var bind bindMount
+		if err := json.Unmarshal([]byte(raw), &bind); err != nil {
+			return fmt.Errorf("invalid bind: %w", err)
+		}
+		if err := mountBind(rootfs, bind); err != nil {
+			return err
+		}
+	}
+	return launch(state, rootfs, config, command)
 }
 
 func unpackLayout(image, layout string) error {
@@ -363,7 +388,52 @@ func applyLayer(layout, root string, d descriptor, expectedDiffID string) error 
 	return nil
 }
 
-func launch(state, root string, cfg imageConfig) error {
+func mountBind(root string, bind bindMount) error {
+	if !filepath.IsAbs(bind.Source) || !filepath.IsAbs(bind.Target) || filepath.Clean(bind.Target) == "/" {
+		return fmt.Errorf("bind requires absolute source and non-root target: %q -> %q", bind.Source, bind.Target)
+	}
+	source, err := filepath.EvalSymlinks(bind.Source)
+	if err != nil {
+		return fmt.Errorf("bind source %q: %w", bind.Source, err)
+	}
+	info, err := os.Stat(source)
+	if err != nil || (!info.IsDir() && !info.Mode().IsRegular()) {
+		return fmt.Errorf("bind source must be a regular file or directory: %q", bind.Source)
+	}
+	target, err := imagePath(root, strings.TrimPrefix(filepath.Clean(bind.Target), "/"))
+	if err != nil {
+		return err
+	}
+	parent := filepath.Dir(target)
+	rel, err := filepath.Rel(root, parent)
+	if err != nil {
+		return err
+	}
+	current := root
+	if rel != "." {
+		for _, part := range strings.Split(rel, string(filepath.Separator)) {
+			current = filepath.Join(current, part)
+			st, err := os.Lstat(current)
+			if errors.Is(err, os.ErrNotExist) {
+				if err := os.Mkdir(current, 0700); err != nil {
+					return err
+				}
+				continue
+			}
+			if err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("bind target parent is not a regular directory: %q", current)
+			}
+		}
+	}
+	if _, err := os.Lstat(target); err == nil {
+		return fmt.Errorf("bind target already exists in image: %q", bind.Target)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.Symlink(source, target)
+}
+
+func launch(state, root string, cfg imageConfig, command []string) error {
 	if cfg.Config.User != "" && cfg.Config.User != "root" {
 		return fmt.Errorf("image user %q is not supported", cfg.Config.User)
 	}
@@ -421,7 +491,11 @@ func launch(state, root string, cfg imageConfig) error {
 	env = append(env, "HOME="+home, "TMPDIR="+tmp)
 	profile := fmt.Sprintf("(version 1)(allow default)(deny file-write*)(allow file-write* (subpath %s))(allow file-write* (literal \"/dev/null\"))", strconv.Quote(state))
 	args := append([]string{"-p", profile, executable}, cfg.Config.Entrypoint[1:]...)
-	args = append(args, cfg.Config.Cmd...)
+	if len(command) != 0 {
+		args = append(args, command...)
+	} else {
+		args = append(args, cfg.Config.Cmd...)
+	}
 	cmd := exec.Command("/usr/bin/sandbox-exec", args...)
 	cmd.Dir = workdir
 	cmd.Env = env
