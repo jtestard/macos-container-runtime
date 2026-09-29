@@ -1,25 +1,31 @@
-# Kind to native macOS Pod prototype
+# Kubernetes usage
 
 `kube/cmd/mackube` is a Virtual Kubelet provider running on the Mac. It
-registers a `macnative` node in the local Kind cluster. A Deployment with the
+registers a native node in a Kubernetes cluster. A Deployment with the
 matching node selector can then create a Pod on that node. The provider asks
 the existing `macd` Docker API service to start and supervise the local
 `darwin/arm64` image.
 
-The control plane and Kubernetes scheduler remain inside Kind's Linux VM.
+The Kubernetes distribution is not part of the runtime contract. `mackube`
+connects to the API server selected by an explicit, single-context kubeconfig;
+the Mac needs API access and credentials that can manage the virtual node and
+its Pods. Kind is the locally tested example below. Other distributions have
+not been validated yet and may need their own RBAC or admission configuration.
 The application binary runs as a macOS process on the host. This prototype
 uses the host network and supports one Pod with one container at a time.
 Multiple `macd` sockets can each serve one image, with one `mackube` process
 per socket. Give each adapter a distinct `-node-name` and `-slot` so a
 Deployment selects the node that has its image; the
 [voice cluster](VOICE_CLUSTER.md) uses this pattern for four native services.
-On this Mac, the example Deployment reached `1/1 Running` on `macnative`,
-returned `ok` from port 8081, and its deletion stopped the native process.
-The adapter also adopted a running Pod after an adapter restart. The node
-changed to NotReady while `macd` was stopped and recovered to Ready when
-`macd` restarted.
 
-## Try the Deployment
+## Run a native Pod
+
+These commands use the existing Kind cluster named `livekit` and keep the
+example on its own virtual node, `macnative-demo`. They do not change your
+default Kubernetes context. If the cluster does not exist, create it first as
+described in the [voice cluster guide](VOICE_CLUSTER.md). Run commands from the
+repository root. You need Docker Desktop, Kind, `kubectl`, the Docker CLI with
+Buildx, and Go 1.26 or later for `mackube`.
 
 Build the small Kubernetes test image through the same Buildx remote worker
 used by [the original tiny web example](../examples/tiny-web/README.md). The
@@ -46,38 +52,46 @@ go build -o .build/macd ./cmd/macd
 Only one `macd` may own that socket. Stop the existing instance first if it
 currently serves another image. The test server uses host port 8081.
 
-Export a kubeconfig containing only the local Kind cluster. `mackube`
-requires exactly one context, named `kind-kind` by default; pass
-`-kind-cluster <name>` for a different dedicated Kind cluster. It refuses
-other contexts to avoid changing an unrelated cluster.
+Export a kubeconfig containing only the `livekit` Kind cluster. `mackube`
+requires exactly one selected context, but does not require a Kind context.
+The optional `-kind-cluster livekit` flag retains the older Kind-specific
+context check if you want it.
 
 ```sh
-kind export kubeconfig --name kind --kubeconfig .build/kind-kubeconfig
+kind export kubeconfig --name livekit --kubeconfig .build/livekit-kubeconfig
 cd kube
 go build -o ../.build/mackube ./cmd/mackube
-../.build/mackube -kubeconfig ../.build/kind-kubeconfig \
+../.build/mackube -kubeconfig ../.build/livekit-kubeconfig \
+  -node-name macnative-demo -slot demo \
   -socket /private/tmp/macnative-docker.sock
 ```
 
 The adapter module requires Go 1.26 or newer. If your shell has `GOROOT` set
 to an older Go installation, unset it before `go build`. In another terminal,
-explicitly target Kind for every Kubernetes command:
+use the dedicated kubeconfig for every Kubernetes command (from the
+repository root):
 
 ```sh
-kubectl --context kind-kind get node macnative
-kubectl --context kind-kind apply -f examples/kubernetes/tiny-web.yaml
-kubectl --context kind-kind get pods -o wide
-kubectl --context kind-kind get deployment macnative-tiny-web
+kubectl --kubeconfig .build/livekit-kubeconfig get node macnative-demo
+kubectl --kubeconfig .build/livekit-kubeconfig apply -f examples/kubernetes/tiny-web.yaml
+kubectl --kubeconfig .build/livekit-kubeconfig get pods -o wide
+kubectl --kubeconfig .build/livekit-kubeconfig get deployment macnative-tiny-web
 curl http://127.0.0.1:8081/healthz
 docker --context macnative ps
-kubectl --context kind-kind delete -f examples/kubernetes/tiny-web.yaml
+kubectl --kubeconfig .build/livekit-kubeconfig delete -f examples/kubernetes/tiny-web.yaml
 ```
 
-The Deployment uses a node selector and matching toleration so the Pod can
-only be scheduled to the synthetic node. It uses `Recreate` and one replica
-because both old and new server processes would otherwise contend for port
-8081. Kubernetes does not allow `spec.os.name: darwin`, so the placement
+The Deployment uses runtime and slot selectors with a matching toleration, so
+the Pod can only be scheduled to `macnative-demo`. It uses `Recreate` and one
+replica because both old and new server processes would otherwise contend for
+port 8081. Kubernetes does not allow `spec.os.name: darwin`, so the placement
 label is our own convention.
+
+For another Kubernetes distribution, provide a dedicated kubeconfig with its
+single intended context selected, then use that path with `mackube -kubeconfig`
+and `kubectl --kubeconfig`. The image, node label, Pod constraints, and host
+network behavior below are the same. No Kind VM is needed for the native
+process; the API server and scheduler can be elsewhere.
 
 ## Current contract
 

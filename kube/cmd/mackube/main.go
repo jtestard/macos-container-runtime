@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 const defaultNodeName = "macnative"
@@ -24,7 +25,7 @@ const slotLabel = "macnative.dev/slot"
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "explicit kubeconfig path (defaults to KUBECONFIG)")
-	kindCluster := flag.String("kind-cluster", "kind", "name of the local Kind cluster")
+	kindCluster := flag.String("kind-cluster", "", "optional Kind cluster name to require a matching kind-<name> context")
 	nodeName := flag.String("node-name", defaultNodeName, "virtual node name (one per macd instance)")
 	slot := flag.String("slot", "", "optional workload label for Pod placement")
 	socket := flag.String("socket", "/private/tmp/macnative-docker.sock", "macd Docker socket")
@@ -56,9 +57,8 @@ func run(kubeconfig, kindCluster, nodeName, slot, socket string) error {
 	if err != nil {
 		return err
 	}
-	expectedContext := "kind-" + kindCluster
-	if kindCluster == "" || config.CurrentContext != expectedContext || len(config.Contexts) != 1 {
-		return fmt.Errorf("kubeconfig must contain only context %q; current context is %q and context count is %d", expectedContext, config.CurrentContext, len(config.Contexts))
+	if err := validateKubeconfig(config, kindCluster); err != nil {
+		return err
 	}
 	if nodeName == "" {
 		return fmt.Errorf("node name must not be empty")
@@ -101,6 +101,16 @@ func run(kubeconfig, kindCluster, nodeName, slot, socket string) error {
 	}
 	go provider.poll(ctx, 2*time.Second)
 	return n.Run(ctx)
+}
+
+func validateKubeconfig(config *clientcmdapi.Config, kindCluster string) error {
+	if len(config.Contexts) != 1 || config.CurrentContext == "" || config.Contexts[config.CurrentContext] == nil {
+		return fmt.Errorf("kubeconfig must contain exactly one context and select it as current; current context is %q and context count is %d", config.CurrentContext, len(config.Contexts))
+	}
+	if kindCluster != "" && config.CurrentContext != "kind-"+kindCluster {
+		return fmt.Errorf("-kind-cluster %q requires context %q, got %q", kindCluster, "kind-"+kindCluster, config.CurrentContext)
+	}
+	return nil
 }
 
 func capacity() corev1.ResourceList {
