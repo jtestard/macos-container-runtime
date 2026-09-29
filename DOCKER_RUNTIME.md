@@ -39,6 +39,25 @@ The Buildx **builder** named `macnative` and the Docker **context** named
 `macnative` are separate settings: the builder points to the BuildKit socket,
 and the context points to this runtime socket.
 
+Docker commands query one context at a time. If your default context is
+`desktop-linux`, plain `docker ps` shows Docker Desktop containers, not native
+containers. Use `docker --context macnative ps -a` to see the native containers.
+This also explains why `docker --context macnative run --name tiny-web` reports
+that the name exists after a detached run, even when plain `docker ps` does not
+show it.
+
+To make plain `docker ps`, `docker logs`, and other commands use the native
+runtime in the current shell session, set:
+
+```sh
+export DOCKER_CONTEXT=macnative
+docker ps
+```
+
+Run `unset DOCKER_CONTEXT` to return to your default context. Alternatively,
+keep using `docker --context macnative ...` on each command. Neither approach
+combines the two daemons' container lists.
+
 ## Run the image
 
 For a foreground process:
