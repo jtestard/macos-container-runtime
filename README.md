@@ -135,6 +135,16 @@ with the SmolLM2 model. The guide has the complete Buildx command and Docker
 CLI run steps. On this Mac, the image loaded all 33 model layers onto the M2
 Pro GPU and answered a chat request.
 
+## Run a Pod from local Kind
+
+The [Kubernetes prototype guide](docs/KUBERNETES.md) builds a separate tiny
+server image on port 8081, registers a virtual `macnative` node with Kind,
+and applies a one-replica Deployment. Kind's Linux control plane schedules
+the Pod, while the application runs as a native macOS process through
+`macd` and `imgrun`. This adapter requires Go 1.26 or later and currently
+handles one Pod with one container; Kubernetes Service routing is a later
+step.
+
 ## What works and what is still experimental
 
 The patched BuildKit worker handles the sample's `COPY` and CPU `RUN` steps

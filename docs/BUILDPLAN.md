@@ -46,6 +46,31 @@ its llama.cpp dylibs, configuration, and SmolLM2 model.
    mounts) and verify layer behavior.
 4. Publish a Buildx image to the loopback registry and verify pull by digest.
 
+## Completed probe: Kind schedules one native macOS Pod
+
+**Goal:** Register a virtual node from a process on macOS, then run one
+`darwin/arm64` image already registered in `macd` from a Deployment created
+through the Kind control plane. This does not add Pod networking yet.
+
+| Step | Status | Check |
+| --- | --- | --- |
+| 1. Define node and Pod contract | Done | [Kubernetes guide](KUBERNETES.md) documents placement label, taint, one-Pod limit, exact image tag and unsupported features. |
+| 2. Implement Virtual Kubelet provider | Done | `kube/cmd/mackube` maps Pod creation, process status and deletion to `macd`; a validation test accepts Kubernetes' empty default security context. |
+| 3. Register node with Kind | Done | `kubectl --context kind-kind get nodes` showed `macnative` Ready beside `kind-control-plane`. Adapter requires a Kind-only kubeconfig. |
+| 4. Run a one-replica Deployment | Done | `kube-web:latest` built via Buildx, scheduled to `macnative`, became `1/1 Running`, and answered `ok` on host port 8081. Deployment rollout completed. |
+| 5. Document limits and cleanup | Done | Deleting the Deployment removed its `macd` process and released port 8081. Service routing, Kubernetes logs, exec, probes and multiple replicas remain separate gates. |
+
+The adapter also adopted a running Pod after its own restart. Deleting that
+Deployment through the restarted adapter removed the original native
+container. Stopping `macd` changed the virtual node to NotReady; restarting
+`macd` returned it to Ready. These checks used the local `kind-kind` context.
+
+The first 8080 trial exposed a still-running Metal server from an earlier run.
+The Kubernetes test image now uses 8081, leaving that workload untouched.
+Virtual Kubelet also resolves Kubernetes service environment variables by
+default; the provider disables that step because the current runner cannot
+honor environment overrides.
+
 The first two gates are architectural. The current Seatbelt profile limits
 ordinary file writes to the snapshot, but still allows host reads and system
 services and does not remap `/`. The `go-inf-server` runtime test demonstrated

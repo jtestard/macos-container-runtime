@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: macnative-tiny-web
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: macnative-tiny-web
+  template:
+    metadata:
+      labels:
+        app: macnative-tiny-web
+    spec:
+      nodeSelector:
+        macnative.dev/runtime: darwin-arm64
+      tolerations:
+        - key: macnative.dev/runtime
+          operator: Equal
+          value: darwin-arm64
+          effect: NoSchedule
+      hostNetwork: true
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: server
+          image: kube-web:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8081
