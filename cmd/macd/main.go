@@ -27,9 +27,10 @@ import (
 const apiVersion = "1.45"
 
 type imageConfig struct {
-	ID           string `json:"id"`
-	OS           string `json:"os"`
-	Architecture string `json:"architecture"`
+	ID           string    `json:"id"`
+	Created      time.Time `json:"created"`
+	OS           string    `json:"os"`
+	Architecture string    `json:"architecture"`
 	Config       struct {
 		Entrypoint []string `json:"Entrypoint"`
 		Cmd        []string `json:"Cmd"`
@@ -59,14 +60,15 @@ type container struct {
 }
 
 type daemon struct {
-	mu         sync.Mutex
-	containers map[string]*container
-	image      string
-	imageID    string
-	imageSize  int64
-	tag        string
-	runner     string
-	config     imageConfig
+	mu           sync.Mutex
+	containers   map[string]*container
+	image        string
+	imageID      string
+	imageSize    int64
+	imageCreated time.Time
+	tag          string
+	runner       string
+	config       imageConfig
 }
 
 func main() {
@@ -144,13 +146,14 @@ func serve(image, tag, runner, socket string) error {
 		return fmt.Errorf("invalid image config digest %q", cfg.ID)
 	}
 	d := &daemon{
-		containers: make(map[string]*container),
-		image:      image,
-		imageID:    cfg.ID,
-		imageSize:  info.Size(),
-		tag:        tag,
-		runner:     runner,
-		config:     cfg,
+		containers:   make(map[string]*container),
+		image:        image,
+		imageID:      cfg.ID,
+		imageSize:    info.Size(),
+		imageCreated: cfg.Created,
+		tag:          tag,
+		runner:       runner,
+		config:       cfg,
 	}
 	if conn, err := net.DialTimeout("unix", socket, 100*time.Millisecond); err == nil {
 		conn.Close()
@@ -211,7 +214,7 @@ func (d *daemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/images/json" && r.Method == http.MethodGet:
 		writeJSON(w, http.StatusOK, []any{map[string]any{
 			"Id": d.imageID, "RepoTags": []string{d.tag},
-			"Size": d.imageSize, "Created": time.Now().Unix(),
+			"Size": d.imageSize, "Created": d.imageCreated.Unix(),
 		}})
 	case strings.HasPrefix(p, "/images/") && strings.HasSuffix(p, "/json") && r.Method == http.MethodGet:
 		d.imageInspect(w, p)
@@ -258,7 +261,8 @@ func (d *daemon) imageInspect(w http.ResponseWriter, p string) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"Id": d.imageID, "RepoTags": []string{d.tag}, "Size": d.imageSize,
-		"Os": "darwin", "Architecture": "arm64",
+		"Created": d.imageCreated.Format(time.RFC3339Nano),
+		"Os":      "darwin", "Architecture": "arm64",
 		"Config": map[string]any{
 			"Entrypoint": d.config.Config.Entrypoint,
 			"Cmd":        d.config.Config.Cmd,

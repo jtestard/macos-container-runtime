@@ -43,6 +43,7 @@ type imageManifest struct {
 }
 
 type imageConfig struct {
+	Created      string `json:"created"`
 	OS           string `json:"os"`
 	Architecture string `json:"architecture"`
 	Config       struct {
