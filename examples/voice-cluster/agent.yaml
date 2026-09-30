@@ -17,7 +17,6 @@ spec:
     spec:
       nodeSelector:
         macnative.dev/runtime: darwin-arm64
-        macnative.dev/slot: agent
       tolerations:
         - key: macnative.dev/runtime
           operator: Equal

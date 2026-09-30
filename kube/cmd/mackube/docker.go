@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -161,10 +162,13 @@ func (r *dockerLogReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (d *dockerClient) logs(ctx context.Context, id string, follow bool) (io.ReadCloser, error) {
+func (d *dockerClient) logs(ctx context.Context, id string, follow bool, tail int) (io.ReadCloser, error) {
 	path := "/containers/" + url.PathEscape(id) + "/logs?stdout=1&stderr=1&follow=0"
 	if follow {
 		path = "/containers/" + url.PathEscape(id) + "/logs?stdout=1&stderr=1&follow=1"
+	}
+	if tail > 0 {
+		path += "&tail=" + strconv.Itoa(tail)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://macd"+path, nil)
 	if err != nil {

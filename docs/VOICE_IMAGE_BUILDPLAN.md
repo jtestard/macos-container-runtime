@@ -29,9 +29,9 @@ environment variables. Python virtual environments and many Node packages
 contain symlinks and absolute paths. Packaging them requires validating those
 behaviors before scheduling a Pod.
 
-The existing `macd` registers one image, and `mackube` allows one native Pod.
-Each service gets its own `macd` socket and virtual node while those limits
-remain. All four native services listen on distinct host ports, so their
-processes can run concurrently.
+The initial voice stack used one `macd` socket and virtual node per image
+because `mackube` allowed one native Pod. The current setup registers all
+four images in one `macd` and schedules their Pods on one node. The services
+listen on distinct host ports so their processes can run concurrently.
 Kubernetes Service routing to a native Pod is still absent. The agent can use
 the current localhost endpoints while all native Pods share the Mac network.

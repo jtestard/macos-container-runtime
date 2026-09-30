@@ -25,6 +25,7 @@ const defaultNodeName = "macnative"
 const runtimeLabel = "macnative.dev/runtime"
 const runtimeValue = "darwin-arm64"
 const slotLabel = "macnative.dev/slot"
+const maxNativePods = 4
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "explicit kubeconfig path (defaults to KUBECONFIG)")
@@ -89,7 +90,7 @@ func run(kubeconfig, kindCluster, nodeName, slot, socket, kubeletAddress string,
 		cfg.HTTPListenAddr = net.JoinHostPort("", strconv.Itoa(kubeletPort))
 		cfg.TLSConfig = tlsConfig
 		cfg.Handler = mux
-		cfg.NumWorkers = 1
+		cfg.NumWorkers = maxNativePods
 		cfg.SkipDownwardAPIResolution = true
 		cfg.NodeSpec.Labels[runtimeLabel] = runtimeValue
 		if slot != "" {
@@ -135,6 +136,6 @@ func capacity() corev1.ResourceList {
 	return corev1.ResourceList{
 		corev1.ResourceCPU:    resource.MustParse("1"),
 		corev1.ResourceMemory: resource.MustParse("1Gi"),
-		corev1.ResourcePods:   resource.MustParse("1"),
+		corev1.ResourcePods:   resource.MustParse(strconv.Itoa(maxNativePods)),
 	}
 }

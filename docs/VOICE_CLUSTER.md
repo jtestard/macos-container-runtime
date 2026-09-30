@@ -3,9 +3,8 @@
 The dedicated Kind cluster named `livekit` runs the LiveKit SFU and browser web
 UI as Linux/arm64 Pods. Four `darwin/arm64` images run as native macOS
 processes through `macd` and Virtual Kubelet: the Metal LLM, Whisper STT,
-Kokoro TTS, and LiveKit voice agent. Each native service gets its own Docker
-socket and virtual node because this prototype registers one image and runs
-one Pod per `macd` and `mackube` pair.
+Kokoro TTS, and LiveKit voice agent. One `macd` holds the four native images,
+and one `mackube` registers the Mac as a single virtual node for all four Pods.
 
 The older `kind-kind` cluster has been removed. The default kubeconfig now
 selects `kind-livekit`; every command below also names the dedicated
@@ -15,7 +14,7 @@ selects `kind-livekit`; every command below also names the dedicated
 
 - [x] Build LiveKit and web UI Deployments for Kind, including host mappings for signaling, UDP media, and the browser.
 - [x] Build the LLM, Whisper, Kokoro, and agent as `darwin/arm64` OCI images.
-- [x] Schedule each native image on its labeled macOS virtual node.
+- [x] Schedule the four native images on one macOS virtual node.
 - [x] Verify the image-built Whisper and Kokoro speech round trip.
 - [x] Verify an image-built agent joins a LiveKit room and synthesizes its greeting through image-built Kokoro.
 - [x] Publish a spoken question through LiveKit and verify the agent reaches Whisper, the Metal LLM, and Kokoro.
@@ -30,9 +29,9 @@ selects `kind-livekit`; every command below also names the dedicated
 | LiveKit SFU | Linux Pod in Kind | 7880/TCP, 7881/TCP, 7882/UDP |
 | Web UI | Linux Pod in Kind | 8090/TCP |
 | `llama-server` LLM (`go-inf-server` Deployment) | native `macnative` Pod | 8080/TCP |
-| Whisper STT | native `macnative-whisper` Pod | 8000/TCP |
-| Kokoro TTS | native `macnative-kokoro` Pod | 8880/TCP |
-| Voice agent | native `macnative-agent` Pod | 8083/TCP |
+| Whisper STT | native `macnative` Pod | 8000/TCP |
+| Kokoro TTS | native `macnative` Pod | 8880/TCP |
+| Voice agent | native `macnative` Pod | 8083/TCP |
 
 Kind's port mapping is fixed when its node container is created. The
 `kind-cluster.yaml` file maps 7880/TCP for signaling, 7881/TCP and 7882/UDP
@@ -70,40 +69,27 @@ To make plain `kubectl` use this cluster as well, run
 `kind export kubeconfig --name livekit`. This adds `kind-livekit` to the
 default kubeconfig and selects it without removing other non-Kind contexts.
 
-Start one `macd` per image. Keep each process running in its own terminal or
-under a process supervisor:
+Start one `macd` with all four local OCI images. Keep it running in a terminal
+or under a process supervisor:
 
 ```sh
-.build/macd -image .build/llama-server.tar \
-  -tag jtstormz/tiny-web:llama-server-001 \
+.build/macd \
+  -load jtstormz/tiny-web:llama-server-001=.build/llama-server.tar \
+  -load whisper-base-en:local=.build/whisper-base-en.tar \
+  -load kokoro-mps:local=.build/kokoro-mps.tar \
+  -load voice-agent:local=.build/voice-agent.tar \
   -runner .build/imgrun -socket /private/tmp/macnative-voice-docker.sock
-.build/macd -image .build/whisper-base-en.tar -tag whisper-base-en:local \
-  -runner .build/imgrun -socket /private/tmp/macnative-whisper-docker.sock
-.build/macd -image .build/kokoro-mps.tar -tag kokoro-mps:local \
-  -runner .build/imgrun -socket /private/tmp/macnative-kokoro-docker.sock
-.build/macd -image .build/voice-agent.tar -tag voice-agent:local \
-  -runner .build/imgrun -socket /private/tmp/macnative-agent-docker.sock
 ```
 
-Once the sockets exist, start one `mackube` per socket. `-slot` labels each
-node so the scheduler selects the correct registered image:
+Once the socket exists, start one `mackube`:
 
 ```sh
 .build/mackube -kind-cluster livekit -kubeconfig .build/livekit-kubeconfig \
-  -node-name macnative -slot llm -socket /private/tmp/macnative-voice-docker.sock \
+  -node-name macnative -socket /private/tmp/macnative-voice-docker.sock \
   -kubelet-address host.docker.internal -kubelet-port 10250
-.build/mackube -kind-cluster livekit -kubeconfig .build/livekit-kubeconfig \
-  -node-name macnative-whisper -slot whisper -socket /private/tmp/macnative-whisper-docker.sock \
-  -kubelet-address host.docker.internal -kubelet-port 10251
-.build/mackube -kind-cluster livekit -kubeconfig .build/livekit-kubeconfig \
-  -node-name macnative-kokoro -slot kokoro -socket /private/tmp/macnative-kokoro-docker.sock \
-  -kubelet-address host.docker.internal -kubelet-port 10252
-.build/mackube -kind-cluster livekit -kubeconfig .build/livekit-kubeconfig \
-  -node-name macnative-agent -slot agent -socket /private/tmp/macnative-agent-docker.sock \
-  -kubelet-address host.docker.internal -kubelet-port 10253
 ```
 
-Each port must be unique and reachable from Kind's control-plane container.
+The kubelet port must be reachable from Kind's control-plane container.
 The virtual kubelet HTTPS endpoints require a client certificate signed by
 the cluster CA in the saved kubeconfig.
 
@@ -174,10 +160,9 @@ options.
 
 ## Stop or recreate
 
-Delete native Deployments before stopping their adapters so `mackube` can
-terminate the macOS process groups. Then stop the four `mackube` processes and
-the four `macd` processes. To stop the Linux Pods as well, delete the web
-manifest and LiveKit kustomization:
+Delete native Deployments before stopping `mackube` so it can terminate the
+macOS process groups. Then stop `mackube` and `macd`. To stop the Linux Pods as
+well, delete the web manifest and LiveKit kustomization:
 
 ```sh
 kubectl --kubeconfig .build/livekit-kubeconfig delete \
@@ -202,7 +187,7 @@ then follow the start sequence above.
 or inject Pod environment variables. It supports one read-only hostPath
 directory per Pod; other volume types are unsupported. The native Pods share the
 Mac's host network, and each must listen on a distinct port. Resource capacity
-is reported separately for each virtual node even though they share one Mac.
+is reported by one virtual node, with a four-Pod limit.
 Pod readiness currently means the process is alive, so use the HTTP checks
 above for model readiness. The runner uses macOS Seatbelt to limit ordinary
 file writes. Kokoro's Metal libraries warn when they cannot write their usual

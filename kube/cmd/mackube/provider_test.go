@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
+	"io"
+	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -23,6 +28,25 @@ func TestValidatePodAcceptsKubernetesEmptyDefaults(t *testing.T) {
 	if err := validatePod(pod); err == nil {
 		t.Fatal("environment override was accepted")
 	}
+}
+
+func TestGetContainerLogsAcceptsTailWithFollow(t *testing.T) {
+	docker := &dockerClient{http: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Query().Get("tail") != "10" || r.URL.Query().Get("follow") != "1" {
+			t.Errorf("unexpected log request: %s", r.URL.String())
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}}
+	p := newProvider(docker)
+	p.pods[key("livekit", "kokoro")] = &managedPod{
+		pod:         &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "kokoro"}}}},
+		containerID: "container-id",
+	}
+	logs, err := p.GetContainerLogs(context.Background(), "livekit", "kokoro", "kokoro", api.ContainerLogOpts{Tail: 10, Follow: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logs.Close()
 }
 
 func TestValidatePodReadOnlyHostPathAndArgs(t *testing.T) {
@@ -63,24 +87,6 @@ func TestValidatePodReadOnlyHostPathAndArgs(t *testing.T) {
 			change(invalid)
 			if err := validatePod(invalid); err == nil {
 				t.Fatal("unsupported volume configuration accepted")
-			}
-		})
-	}
-}
-
-func TestLastLogLines(t *testing.T) {
-	for _, tt := range []struct {
-		name, input, want string
-		count             int
-	}{
-		{name: "one", input: "first\nsecond\nthird\n", count: 1, want: "third\n"},
-		{name: "two", input: "first\nsecond\nthird\n", count: 2, want: "second\nthird\n"},
-		{name: "more than available", input: "first\nsecond\n", count: 4, want: "first\nsecond\n"},
-		{name: "no final newline", input: "first\nsecond", count: 1, want: "second"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := string(lastLogLines([]byte(tt.input), tt.count)); got != tt.want {
-				t.Fatalf("lastLogLines = %q, want %q", got, tt.want)
 			}
 		})
 	}

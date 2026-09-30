@@ -75,24 +75,47 @@ type daemon struct {
 	runner     string
 }
 
+type startupImage struct {
+	tag  string
+	path string
+}
+
+type startupImages []startupImage
+
+func (images *startupImages) String() string { return fmt.Sprintf("%d images", len(*images)) }
+
+func (images *startupImages) Set(value string) error {
+	tag, path, ok := strings.Cut(value, "=")
+	if !ok || tag == "" || path == "" {
+		return fmt.Errorf("use -load tag=local-oci.tar")
+	}
+	*images = append(*images, startupImage{tag: tag, path: path})
+	return nil
+}
+
 func main() {
 	image := flag.String("image", "", "optional local OCI tarball to register at startup")
 	tag := flag.String("tag", "tiny-web:latest", "image name visible to Docker")
 	runner := flag.String("runner", ".build/imgrun", "path to the native image runner")
 	socket := flag.String("socket", "/private/tmp/macnative-docker.sock", "Docker Engine API Unix socket")
 	store := flag.String("store", "", "persistent image store (defaults to the user's Application Support directory)")
+	var loads startupImages
+	flag.Var(&loads, "load", "register an OCI tarball as tag=path; may be repeated")
 	flag.Parse()
 	if flag.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "usage: macd [-image local-oci.tar] [-tag name:tag] [-runner path] [-socket path] [-store path]")
+		fmt.Fprintln(os.Stderr, "usage: macd [-image local-oci.tar] [-tag name:tag] [-load tag=local-oci.tar]... [-runner path] [-socket path] [-store path]")
 		os.Exit(2)
 	}
-	if err := serve(*image, *tag, *runner, *socket, *store); err != nil {
+	if *image != "" {
+		loads = append(startupImages{{tag: *tag, path: *image}}, loads...)
+	}
+	if err := serve(loads, *runner, *socket, *store); err != nil {
 		fmt.Fprintln(os.Stderr, "macd:", err)
 		os.Exit(1)
 	}
 }
 
-func serve(image, tag, runner, socket, store string) error {
+func serve(images startupImages, runner, socket, store string) error {
 	var err error
 	runner, err = filepath.Abs(runner)
 	if err != nil {
@@ -110,8 +133,13 @@ func serve(image, tag, runner, socket, store string) error {
 	if err != nil {
 		return err
 	}
-	if image != "" {
-		if err := d.addInitialImage(image, tag, state); err != nil {
+	seen := make(map[string]bool)
+	for _, image := range images {
+		if seen[image.tag] {
+			return fmt.Errorf("startup image tag %q is repeated", image.tag)
+		}
+		seen[image.tag] = true
+		if err := d.addInitialImage(image.path, image.tag, state); err != nil {
 			return err
 		}
 	}
@@ -598,9 +626,21 @@ func (d *daemon) list(w http.ResponseWriter) {
 
 func (d *daemon) logs(w http.ResponseWriter, r *http.Request, c *container) {
 	follow := r.URL.Query().Get("follow") == "1" || strings.EqualFold(r.URL.Query().Get("follow"), "true")
+	tail := -1
+	if raw := r.URL.Query().Get("tail"); raw != "" && raw != "all" {
+		var err error
+		tail, err = strconv.Atoi(raw)
+		if err != nil || tail < 0 {
+			writeError(w, http.StatusBadRequest, "tail must be a nonnegative line count or all")
+			return
+		}
+	}
 	ch := make(chan frame, 64)
 	d.mu.Lock()
 	history := append([]frame(nil), c.logs...)
+	if tail >= 0 {
+		history = tailFrames(history, tail)
+	}
 	running := c.status != "exited"
 	if follow && running {
 		c.watch[ch] = struct{}{}
@@ -651,6 +691,43 @@ func (d *daemon) logs(w http.ResponseWriter, r *http.Request, c *container) {
 			return
 		}
 	}
+}
+
+func tailFrames(history []frame, count int) []frame {
+	if count == 0 {
+		return nil
+	}
+	var combined []byte
+	for _, f := range history {
+		combined = append(combined, f.data...)
+	}
+	end := len(combined)
+	if end > 0 && combined[end-1] == '\n' {
+		end--
+	}
+	start := 0
+	for i := end - 1; i >= 0; i-- {
+		if combined[i] == '\n' {
+			count--
+			if count == 0 {
+				start = i + 1
+				break
+			}
+		}
+	}
+	if start == 0 {
+		return history
+	}
+	result := make([]frame, 0, len(history))
+	for _, f := range history {
+		if start >= len(f.data) {
+			start -= len(f.data)
+			continue
+		}
+		result = append(result, frame{stream: f.stream, data: f.data[start:]})
+		start = 0
+	}
+	return result
 }
 
 func (d *daemon) stop(w http.ResponseWriter, c *container) {

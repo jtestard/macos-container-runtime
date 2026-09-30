@@ -61,3 +61,17 @@ func TestDockerLogReaderRemovesStreamHeaders(t *testing.T) {
 		t.Fatalf("decoded logs = %q, %v", got, err)
 	}
 }
+
+func TestDockerLogsRequestsTailAndFollowTogether(t *testing.T) {
+	client := &dockerClient{http: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/containers/container-id/logs" || r.URL.Query().Get("follow") != "1" || r.URL.Query().Get("tail") != "10" {
+			t.Errorf("unexpected log request: %s", r.URL.String())
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}}
+	logs, err := client.logs(context.Background(), "container-id", true, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logs.Close()
+}

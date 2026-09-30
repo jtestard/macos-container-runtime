@@ -84,10 +84,9 @@ You need a running `macd` (see the [installation guide](../README.md)),
 ## Current limits
 
 The image must already be present in `macd`; `mackube` does not pull it. The
-adapter supports one Pod with one container at a time. The example uses a
+adapter supports up to four Pods with one container each. The example uses a
 single replica, `Recreate`, a node selector, and a matching toleration to place
-the Pod on the `macnative-llama` node. Stop any other container running under
-this `macd` before creating the Deployment. Port 8082 must be free on the Mac. The
+the Pod on the `macnative-llama` node. Port 8082 must be free on the Mac. The
 Pod uses host networking, so it has no separate Pod IP and a selector-based
 Kubernetes Service cannot route to it.
 
@@ -95,9 +94,10 @@ The Pod has the image's default entrypoint, no environment overrides, and
 one read-only `hostPath` directory mounted at an image path that does not
 already exist. The directory is read from the Mac running `macd`. Image pull
 secrets, probes, exec, port forwarding, and metrics are not supported. Native
-Pod logs support `kubectl logs`, `--tail`, and `-f`. The `--previous`, `--since`,
-`--timestamps`, `--limit-bytes`, and `--tail` with `-f` options are not yet
-supported. Tail selection reads up to 2 MiB of saved output.
+Pod logs support `kubectl logs`, `--tail`, `-f`, and `--tail` with `-f` as used
+by Stern. The `--previous`, `--since`, `--timestamps`, and `--limit-bytes`
+options are not yet supported. Log history is held in memory, up to 1 MiB per
+container; tail selection uses that retained history.
 
 Kubernetes `Ready` currently means the process is alive; the model can still
 be loading. Check `/health` before sending inference requests. Both `macd`

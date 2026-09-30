@@ -110,11 +110,11 @@ func (d *daemon) addInitialImage(source, tag, state string) error {
 		return err
 	}
 	defer in.Close()
-	path := filepath.Join(state, "startup-image.tar")
-	out, err := os.Create(path)
+	out, err := os.CreateTemp(state, "startup-image-*.tar")
 	if err != nil {
 		return err
 	}
+	path := out.Name()
 	if _, err = io.Copy(out, in); err != nil {
 		out.Close()
 		return err

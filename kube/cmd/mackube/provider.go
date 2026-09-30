@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -115,8 +114,7 @@ func (p *provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 			return err
 		}
 		if err == nil && state.State.Running {
-			p.mu.Unlock()
-			return fmt.Errorf("macnative currently has capacity for one Pod")
+			continue
 		}
 		// A terminal Pod has already been reported to Kubernetes. Its
 		// process no longer occupies the native slot; clear its macd record
@@ -157,8 +155,8 @@ func (p *provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 	}
 	if n, err := p.docker.runningCount(ctx); err != nil {
 		return err
-	} else if n != 0 {
-		return fmt.Errorf("macd already has a running container; stop it before scheduling a Pod")
+	} else if n >= maxNativePods {
+		return fmt.Errorf("macnative has reached its capacity of %d Pods", maxNativePods)
 	}
 	binds, err := podBinds(pod)
 	if err != nil {
@@ -383,8 +381,8 @@ func statusFor(pod *corev1.Pod, state *dockerInspect) corev1.PodStatus {
 
 func unsupported() error { return fmt.Errorf("macnative does not support this kubelet operation yet") }
 func (p *provider) GetContainerLogs(ctx context.Context, namespace, podName, containerName string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
-	if opts.Previous || opts.LimitBytes != 0 || opts.Timestamps || opts.SinceSeconds != 0 || !opts.SinceTime.IsZero() || (opts.Follow && opts.Tail != 0) {
-		return nil, errdefs.InvalidInput("previous, limit, timestamps, since, and tail with follow log options are unsupported")
+	if opts.Previous || opts.LimitBytes != 0 || opts.Timestamps || opts.SinceSeconds != 0 || !opts.SinceTime.IsZero() {
+		return nil, errdefs.InvalidInput("previous, limit, timestamps, and since log options are unsupported")
 	}
 	p.mu.Lock()
 	managed := p.pods[key(namespace, podName)]
@@ -398,36 +396,7 @@ func (p *provider) GetContainerLogs(ctx context.Context, namespace, podName, con
 	}
 	id := managed.containerID
 	p.mu.Unlock()
-	logs, err := p.docker.logs(ctx, id, opts.Follow)
-	if err != nil || opts.Tail == 0 {
-		return logs, err
-	}
-	defer logs.Close()
-	all, err := io.ReadAll(io.LimitReader(logs, 2<<20))
-	if err != nil {
-		return nil, err
-	}
-	return io.NopCloser(bytes.NewReader(lastLogLines(all, opts.Tail))), nil
-}
-
-func lastLogLines(data []byte, count int) []byte {
-	if count <= 0 || len(data) == 0 {
-		return data
-	}
-	end := len(data) - 1
-	if data[end] == '\n' {
-		end--
-	}
-	for end >= 0 {
-		if data[end] == '\n' {
-			count--
-			if count == 0 {
-				return data[end+1:]
-			}
-		}
-		end--
-	}
-	return data
+	return p.docker.logs(ctx, id, opts.Follow, opts.Tail)
 }
 func (p *provider) RunInContainer(context.Context, string, string, string, []string, api.AttachIO) error {
 	return unsupported()
