@@ -6,8 +6,9 @@ Mac, with access to Metal and a model directory on the Mac. It does not need
 the voice stack or a BuildKit build.
 
 Any Kubernetes distribution can provide the control plane, provided this Mac
-can reach its API server and the selected credentials can manage nodes and
-Pods. Kind is one tested option. Run these commands from the repository root.
+can reach its API server, the control plane can reach the Mac's virtual kubelet
+HTTPS endpoint, and the selected credentials can manage nodes and Pods. Kind
+is one tested option. Run these commands from the repository root.
 You need a running `macd` (see the [installation guide](../README.md)),
 `docker`, `kubectl`, and Go 1.26 or later.
 
@@ -40,8 +41,15 @@ You need a running `macd` (see the [installation guide](../README.md)),
    ```sh
    .build/mackube -kubeconfig .build/macnative-kubeconfig \
      -node-name macnative-llama -slot llama \
-     -socket /private/tmp/macnative-docker.sock
+     -socket /private/tmp/macnative-docker.sock \
+     -kubelet-address host.docker.internal -kubelet-port 10250
    ```
+
+   For Kind on Docker Desktop, `host.docker.internal` resolves inside the
+   control-plane container to the Mac. Use a different reachable address for
+   other clusters and a distinct port for each virtual node. `mackube` serves
+   HTTPS on that port and requires a client certificate signed by the cluster
+   CA in the saved kubeconfig.
 
 4. In the original terminal, set `MODEL_DIR` to the **absolute path of the
    directory** containing `SmolLM2-360M-Instruct-Q8_0.gguf` on this Mac. The
@@ -65,6 +73,7 @@ You need a running `macd` (see the [installation guide](../README.md)),
 
    ```sh
    curl http://127.0.0.1:8082/health
+   kubectl --kubeconfig .build/macnative-kubeconfig logs -n default deployment/macnative-llama --tail=20
    docker ps
    kubectl --kubeconfig .build/macnative-kubeconfig delete deployment macnative-llama -n default
    ```
@@ -85,8 +94,10 @@ Kubernetes Service cannot route to it.
 The Pod has the image's default entrypoint, no environment overrides, and
 one read-only `hostPath` directory mounted at an image path that does not
 already exist. The directory is read from the Mac running `macd`. Image pull
-secrets, probes, exec, port forwarding, metrics, and Kubernetes log streaming
-are not supported. Use `docker logs` for process output.
+secrets, probes, exec, port forwarding, and metrics are not supported. Native
+Pod logs support `kubectl logs`, `--tail`, and `-f`. The `--previous`, `--since`,
+`--timestamps`, `--limit-bytes`, and `--tail` with `-f` options are not yet
+supported. Tail selection reads up to 2 MiB of saved output.
 
 Kubernetes `Ready` currently means the process is alive; the model can still
 be loading. Check `/health` before sending inference requests. Both `macd`

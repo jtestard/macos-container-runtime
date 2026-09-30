@@ -4,8 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -29,18 +32,20 @@ func main() {
 	nodeName := flag.String("node-name", defaultNodeName, "virtual node name (one per macd instance)")
 	slot := flag.String("slot", "", "optional workload label for Pod placement")
 	socket := flag.String("socket", "/private/tmp/macnative-docker.sock", "macd Docker socket")
+	kubeletAddress := flag.String("kubelet-address", "host.docker.internal", "address Kind uses to reach this Mac's virtual kubelet")
+	kubeletPort := flag.Int("kubelet-port", 10250, "unique HTTPS port for this virtual node")
 	flag.Parse()
 	if flag.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "usage: mackube [-kubeconfig path] [-kind-cluster name] [-node-name name] [-slot name] [-socket path]")
+		fmt.Fprintln(os.Stderr, "usage: mackube [-kubeconfig path] [-kind-cluster name] [-node-name name] [-slot name] [-socket path] [-kubelet-address host] [-kubelet-port port]")
 		os.Exit(2)
 	}
-	if err := run(*kubeconfig, *kindCluster, *nodeName, *slot, *socket); err != nil {
+	if err := run(*kubeconfig, *kindCluster, *nodeName, *slot, *socket, *kubeletAddress, *kubeletPort); err != nil {
 		fmt.Fprintln(os.Stderr, "mackube:", err)
 		os.Exit(1)
 	}
 }
 
-func run(kubeconfig, kindCluster, nodeName, slot, socket string) error {
+func run(kubeconfig, kindCluster, nodeName, slot, socket, kubeletAddress string, kubeletPort int) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	backend := newDockerClient(socket)
@@ -63,16 +68,27 @@ func run(kubeconfig, kindCluster, nodeName, slot, socket string) error {
 	if nodeName == "" {
 		return fmt.Errorf("node name must not be empty")
 	}
+	if kubeletAddress == "" || kubeletPort < 1 || kubeletPort > 65535 {
+		return fmt.Errorf("set a reachable -kubelet-address and a unique -kubelet-port in 1..65535")
+	}
+	tlsConfig, err := kubeletTLSConfig(config, kubeletAddress)
+	if err != nil {
+		return err
+	}
 	client, err := nodeutil.ClientsetFromEnv(kubeconfig)
 	if err != nil {
 		return err
 	}
 	provider := newProvider(backend)
+	mux := http.NewServeMux()
 	n, err := nodeutil.NewNode(nodeName, func(cfg nodeutil.ProviderConfig) (nodeutil.Provider, node.NodeProvider, error) {
 		provider.node = cfg.Node.DeepCopy()
 		return provider, provider, nil
-	}, nodeutil.WithClient(client), func(cfg *nodeutil.NodeConfig) error {
+	}, nodeutil.WithClient(client), nodeutil.AttachProviderRoutes(mux), func(cfg *nodeutil.NodeConfig) error {
 		cfg.KubeconfigPath = kubeconfig
+		cfg.HTTPListenAddr = net.JoinHostPort("", strconv.Itoa(kubeletPort))
+		cfg.TLSConfig = tlsConfig
+		cfg.Handler = mux
 		cfg.NumWorkers = 1
 		cfg.SkipDownwardAPIResolution = true
 		cfg.NodeSpec.Labels[runtimeLabel] = runtimeValue
@@ -87,6 +103,8 @@ func run(kubeconfig, kindCluster, nodeName, slot, socket string) error {
 		cfg.NodeSpec.Status.Allocatable = capacity()
 		cfg.NodeSpec.Status.NodeInfo = corev1.NodeSystemInfo{Architecture: "arm64", OperatingSystem: "darwin", KubeletVersion: "macnative/0.1"}
 		cfg.NodeSpec.Status.Phase = corev1.NodeRunning
+		cfg.NodeSpec.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeHostName, Address: kubeletAddress}}
+		cfg.NodeSpec.Status.DaemonEndpoints.KubeletEndpoint.Port = int32(kubeletPort)
 		cfg.NodeSpec.Status.Conditions = []corev1.NodeCondition{
 			{Type: corev1.NodeReady, Status: corev1.ConditionTrue, Reason: "MacdReady", Message: "macd socket is reachable", LastHeartbeatTime: metav1.Now(), LastTransitionTime: metav1.Now()},
 			{Type: corev1.NodeDiskPressure, Status: corev1.ConditionFalse, Reason: "NoPressure"},

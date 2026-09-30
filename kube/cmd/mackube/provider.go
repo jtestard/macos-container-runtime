@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -381,8 +382,52 @@ func statusFor(pod *corev1.Pod, state *dockerInspect) corev1.PodStatus {
 }
 
 func unsupported() error { return fmt.Errorf("macnative does not support this kubelet operation yet") }
-func (p *provider) GetContainerLogs(context.Context, string, string, string, api.ContainerLogOpts) (io.ReadCloser, error) {
-	return nil, unsupported()
+func (p *provider) GetContainerLogs(ctx context.Context, namespace, podName, containerName string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
+	if opts.Previous || opts.LimitBytes != 0 || opts.Timestamps || opts.SinceSeconds != 0 || !opts.SinceTime.IsZero() || (opts.Follow && opts.Tail != 0) {
+		return nil, errdefs.InvalidInput("previous, limit, timestamps, since, and tail with follow log options are unsupported")
+	}
+	p.mu.Lock()
+	managed := p.pods[key(namespace, podName)]
+	if managed == nil {
+		p.mu.Unlock()
+		return nil, errdefs.NotFoundf("Pod %s/%s is not known", namespace, podName)
+	}
+	if managed.pod.Spec.Containers[0].Name != containerName {
+		p.mu.Unlock()
+		return nil, errdefs.NotFoundf("container %s is not in Pod %s/%s", containerName, namespace, podName)
+	}
+	id := managed.containerID
+	p.mu.Unlock()
+	logs, err := p.docker.logs(ctx, id, opts.Follow)
+	if err != nil || opts.Tail == 0 {
+		return logs, err
+	}
+	defer logs.Close()
+	all, err := io.ReadAll(io.LimitReader(logs, 2<<20))
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(lastLogLines(all, opts.Tail))), nil
+}
+
+func lastLogLines(data []byte, count int) []byte {
+	if count <= 0 || len(data) == 0 {
+		return data
+	}
+	end := len(data) - 1
+	if data[end] == '\n' {
+		end--
+	}
+	for end >= 0 {
+		if data[end] == '\n' {
+			count--
+			if count == 0 {
+				return data[end+1:]
+			}
+		}
+		end--
+	}
+	return data
 }
 func (p *provider) RunInContainer(context.Context, string, string, string, []string, api.AttachIO) error {
 	return unsupported()

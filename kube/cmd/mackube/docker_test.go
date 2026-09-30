@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -41,5 +42,22 @@ func TestDockerCreatePassesArgsAndBinds(t *testing.T) {
 	id, err := client.create(context.Background(), "llama-server:local", "test", []string{"-m", "models/model.gguf"}, []string{"/host/models:/app/models:ro"})
 	if err != nil || id != "container-id" {
 		t.Fatalf("create = %q, %v", id, err)
+	}
+}
+
+func TestDockerLogReaderRemovesStreamHeaders(t *testing.T) {
+	var framed []byte
+	for stream, line := range []string{"first\n", "second\n"} {
+		var header [8]byte
+		header[0] = byte(stream + 1)
+		binary.BigEndian.PutUint32(header[4:], uint32(len(line)))
+		framed = append(framed, header[:]...)
+		framed = append(framed, line...)
+	}
+	reader := &dockerLogReader{body: io.NopCloser(strings.NewReader(string(framed)))}
+	defer reader.Close()
+	got, err := io.ReadAll(reader)
+	if err != nil || string(got) != "first\nsecond\n" {
+		t.Fatalf("decoded logs = %q, %v", got, err)
 	}
 }

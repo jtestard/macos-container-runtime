@@ -67,3 +67,21 @@ func TestValidatePodReadOnlyHostPathAndArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestLastLogLines(t *testing.T) {
+	for _, tt := range []struct {
+		name, input, want string
+		count             int
+	}{
+		{name: "one", input: "first\nsecond\nthird\n", count: 1, want: "third\n"},
+		{name: "two", input: "first\nsecond\nthird\n", count: 2, want: "second\nthird\n"},
+		{name: "more than available", input: "first\nsecond\n", count: 4, want: "first\nsecond\n"},
+		{name: "no final newline", input: "first\nsecond", count: 1, want: "second"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := string(lastLogLines([]byte(tt.input), tt.count)); got != tt.want {
+				t.Fatalf("lastLogLines = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -126,4 +127,58 @@ func (d *dockerClient) inspect(ctx context.Context, name string) (*dockerInspect
 
 func (d *dockerClient) remove(ctx context.Context, id string) error {
 	return d.call(ctx, http.MethodDelete, "/containers/"+id+"?force=1", nil, nil, http.StatusNoContent)
+}
+
+type dockerLogReader struct {
+	body      io.ReadCloser
+	remaining uint32
+}
+
+func (r *dockerLogReader) Close() error { return r.body.Close() }
+
+func (r *dockerLogReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	for r.remaining == 0 {
+		var header [8]byte
+		if _, err := io.ReadFull(r.body, header[:]); err != nil {
+			return 0, err
+		}
+		if header[0] != 1 && header[0] != 2 {
+			return 0, fmt.Errorf("unsupported Docker log stream %d", header[0])
+		}
+		r.remaining = binary.BigEndian.Uint32(header[4:])
+		if r.remaining > 4<<20 {
+			return 0, fmt.Errorf("Docker log frame exceeds 4 MiB")
+		}
+	}
+	if uint32(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.body.Read(p)
+	r.remaining -= uint32(n)
+	return n, err
+}
+
+func (d *dockerClient) logs(ctx context.Context, id string, follow bool) (io.ReadCloser, error) {
+	path := "/containers/" + url.PathEscape(id) + "/logs?stdout=1&stderr=1&follow=0"
+	if follow {
+		path = "/containers/" + url.PathEscape(id) + "/logs?stdout=1&stderr=1&follow=1"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://macd"+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	response, err := d.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode != http.StatusOK {
+		defer response.Body.Close()
+		var detail dockerError
+		_ = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&detail)
+		return nil, &dockerAPIError{Method: http.MethodGet, Path: path, Status: response.StatusCode, Message: detail.Message}
+	}
+	return &dockerLogReader{body: response.Body}, nil
 }

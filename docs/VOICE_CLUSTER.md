@@ -90,14 +90,22 @@ node so the scheduler selects the correct registered image:
 
 ```sh
 .build/mackube -kind-cluster livekit -kubeconfig .build/livekit-kubeconfig \
-  -node-name macnative -slot llm -socket /private/tmp/macnative-voice-docker.sock
+  -node-name macnative -slot llm -socket /private/tmp/macnative-voice-docker.sock \
+  -kubelet-address host.docker.internal -kubelet-port 10250
 .build/mackube -kind-cluster livekit -kubeconfig .build/livekit-kubeconfig \
-  -node-name macnative-whisper -slot whisper -socket /private/tmp/macnative-whisper-docker.sock
+  -node-name macnative-whisper -slot whisper -socket /private/tmp/macnative-whisper-docker.sock \
+  -kubelet-address host.docker.internal -kubelet-port 10251
 .build/mackube -kind-cluster livekit -kubeconfig .build/livekit-kubeconfig \
-  -node-name macnative-kokoro -slot kokoro -socket /private/tmp/macnative-kokoro-docker.sock
+  -node-name macnative-kokoro -slot kokoro -socket /private/tmp/macnative-kokoro-docker.sock \
+  -kubelet-address host.docker.internal -kubelet-port 10252
 .build/mackube -kind-cluster livekit -kubeconfig .build/livekit-kubeconfig \
-  -node-name macnative-agent -slot agent -socket /private/tmp/macnative-agent-docker.sock
+  -node-name macnative-agent -slot agent -socket /private/tmp/macnative-agent-docker.sock \
+  -kubelet-address host.docker.internal -kubelet-port 10253
 ```
+
+Each port must be unique and reachable from Kind's control-plane container.
+The virtual kubelet HTTPS endpoints require a client certificate signed by
+the cluster CA in the saved kubeconfig.
 
 The LLM Deployment uses the model-free `llama-server` image with
 `Mistral-7B-Instruct-v0.3-Q4_K_M.gguf` as its default model. Reuse the GGUF
@@ -154,9 +162,15 @@ That earlier test used SmolLM2, which answered the arithmetic question
 incorrectly. It verified transport and service integration, not the new
 Mistral default or answer quality.
 A browser microphone test still needs a person.
-LiveKit logs use `kubectl logs deployment/livekit`. Native Pod log streaming
-through Kubernetes is not implemented; use `docker -H unix://<socket> ps` to
-find the container ID, then `docker -H unix://<socket> logs <id>`.
+LiveKit logs use `kubectl logs deployment/livekit`. Native Pod logs also work
+through Kubernetes, including `--tail` and `-f`:
+
+```sh
+kubectl --kubeconfig .build/livekit-kubeconfig -n livekit logs deployment/go-inf-server --tail=20
+```
+
+See [Kubernetes usage](KUBERNETES.md#current-limits) for unsupported log
+options.
 
 ## Stop or recreate
 
