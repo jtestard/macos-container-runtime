@@ -41,6 +41,16 @@ The image can be launched through the project's small
 [local OCI runner](../../docs/RUNNER.md) or through the
 [Docker CLI runtime prototype](../../docs/DOCKER_RUNTIME.md). The runtime service
 supports `docker --context macnative run tiny-web:latest` for this registered
-image. `GET http://127.0.0.1:8080/healthz` returned `ok`.
+image. The server defaults to port 8080. Pass `--port` after the image name to
+choose a different host port without Docker port mapping. The published
+`jtstormz/tiny-web:dev-002` image supports the same option:
+
+```sh
+docker --context macnative run -d --name tiny-web tiny-web:latest --port 8081
+curl http://127.0.0.1:8081/healthz
+docker --context macnative rm -f tiny-web
+```
+
+`GET /healthz` returns `ok`.
 The server logs the method, URI, and client address of each HTTP request;
 the messages are available through `docker --context macnative logs tiny-web`.

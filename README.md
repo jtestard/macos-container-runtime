@@ -39,15 +39,16 @@ Pull the small `darwin/arm64` Go server from Docker Hub and run it with the
 regular Docker CLI:
 
 ```sh
-docker --context macnative pull jtstormz/tiny-web:dev-001
-docker --context macnative run -d --name tiny-web jtstormz/tiny-web:dev-001
-curl http://127.0.0.1:8080/healthz
+docker --context macnative pull jtstormz/tiny-web:dev-002
+docker --context macnative run -d --name tiny-web jtstormz/tiny-web:dev-002 --port 8081
+curl http://127.0.0.1:8081/healthz
 docker --context macnative logs tiny-web
 docker --context macnative rm -f tiny-web
 ```
 
-The server listens on the Mac's port 8080, which must be free. Its source is
-in [examples/tiny-web](examples/tiny-web/README.md).
+The server listens directly on the Mac. `--port` selects an available port;
+without it, the server uses 8080. Its source is in
+[examples/tiny-web](examples/tiny-web/README.md).
 
 ## Run a llama server with Metal
 
@@ -151,9 +152,23 @@ docker buildx build --builder macnative --platform darwin/arm64 \
   examples/tiny-web
 ```
 
-For this local tarball, stop the LaunchAgent with `./scripts/disable-macd.sh`
-and start `macd` manually with `-image .build/tiny-web.tar -tag tiny-web:latest`
-and `-runner .build/imgrun` on the usual socket. Then run
-`docker --context macnative run -d --name tiny-web tiny-web:latest`. The
+For this local tarball, stop the LaunchAgent and start `macd` manually on the
+usual socket:
+
+```sh
+./scripts/disable-macd.sh
+.build/macd -image .build/tiny-web.tar -tag tiny-web:latest \
+  -runner .build/imgrun -socket /private/tmp/macnative-docker.sock
+```
+
+In another terminal, choose an available port:
+
+```sh
+docker --context macnative run -d --name tiny-web tiny-web:latest --port 8081
+curl http://127.0.0.1:8081/healthz
+docker --context macnative rm -f tiny-web
+```
+
+The server defaults to port 8080 when `--port` is omitted. The
 [Metal server example](examples/go-inf-server/README.md) has the full build
 and run workflow for the cgo application and model image.
