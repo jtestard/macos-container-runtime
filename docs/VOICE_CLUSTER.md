@@ -104,11 +104,19 @@ The LLM Deployment uses the model-free `llama-server` image with
 already in your `go-inf-server/models/mistral-7b` directory on the Mac. Set
 `APP_SOURCE` to that checkout's absolute path; `MODEL_DIR` then selects the
 model directory. The manifest's `__MODEL_DIR__` placeholder is filled when you
-apply it, so no personal path is stored in the YAML. If you choose another
-GGUF, change the `-m` argument in the manifest to match its file name. The
-image defaults to port 8082, so the Pod adds `--port 8080` to keep the voice
-agent's packaged `LLM_BASE_URL` valid. `llama-server` logs a duplicate-port
-warning; the appended value wins. If `.build/llama-server.tar` is absent,
+apply it, so no personal path is stored in the YAML. **Apply only the rendered
+manifest below.** Applying the template file directly leaves `__MODEL_DIR__`
+in the Pod, and `mackube` rejects that relative path. If this already happened,
+the rendered `kubectl apply` command below updates the Deployment and replaces
+the rejected Pod. If you choose another GGUF, change the `-m` argument in the
+manifest to match its file name. The image defaults to port 8082, so the Pod
+adds `--port 8080` to keep the voice agent's packaged `LLM_BASE_URL` valid.
+On the tested 16 GB Mac, loading this
+GGUF with the image's default mmap mode stalled in Metal residency. The Pod
+sets `--load-mode none` and offloads 16 layers to Metal; that configuration
+reached `/health` successfully. `llama-server` logs duplicate-argument warnings
+for the port and GPU layer count because the Pod overrides image defaults; the
+appended values win. If `.build/llama-server.tar` is absent,
 download the published tag as an OCI tarball using the
 [root README](../README.md#run-a-llama-server-with-metal)
 before starting `macd`. Deploy the three API services first. Their Pods

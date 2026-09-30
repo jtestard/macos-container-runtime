@@ -1,5 +1,6 @@
 apiVersion: apps/v1
 kind: Deployment
+# Template: render __MODEL_DIR__ as an absolute Mac path before applying.
 metadata:
   name: go-inf-server
   namespace: livekit
@@ -35,6 +36,10 @@ spec:
             - models/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf
             - --port
             - "8080"
+            - --n-gpu-layers
+            - "16"
+            - --load-mode
+            - none
           volumeMounts:
             - name: llama-model
               mountPath: /app/models
