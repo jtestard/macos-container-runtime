@@ -1,23 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: go-inf-server
-  namespace: livekit
+  name: macnative-llama
+  namespace: default
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: go-inf-server
+      app: macnative-llama
   template:
     metadata:
       labels:
-        app: go-inf-server
+        app: macnative-llama
     spec:
       nodeSelector:
         macnative.dev/runtime: darwin-arm64
-        macnative.dev/slot: llm
+        macnative.dev/slot: llama
       tolerations:
         - key: macnative.dev/runtime
           operator: Equal
@@ -27,22 +27,20 @@ spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
       containers:
-        - name: server
+        - name: llama-server
           image: jtstormz/tiny-web:llama-server-001
           imagePullPolicy: Never
           args:
             - -m
-            - models/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf
-            - --port
-            - "8080"
+            - models/SmolLM2-360M-Instruct-Q8_0.gguf
           volumeMounts:
-            - name: llama-model
+            - name: model
               mountPath: /app/models
               readOnly: true
           ports:
-            - containerPort: 8080
+            - containerPort: 8082
       volumes:
-        - name: llama-model
+        - name: model
           hostPath:
             path: __MODEL_DIR__
             type: Directory

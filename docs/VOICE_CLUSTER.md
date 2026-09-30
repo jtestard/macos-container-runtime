@@ -99,21 +99,30 @@ node so the scheduler selects the correct registered image:
   -node-name macnative-agent -slot agent -socket /private/tmp/macnative-agent-docker.sock
 ```
 
-The LLM Deployment uses the model-free `llama-server` image. Set `MODEL_DIR`
-to the absolute model directory on the Mac and replace the `hostPath.path`
-placeholder in the manifest with that value. The image
-defaults to port 8082, so the Pod adds `--port 8080` to keep the voice agent's
-packaged `LLM_BASE_URL` valid. `llama-server` logs a duplicate-port warning;
-the appended value wins. If `.build/llama-server.tar` is absent, download the
-published tag as an OCI tarball using the [root README](../README.md#run-a-llama-server-with-metal)
+The LLM Deployment uses the model-free `llama-server` image with
+`Mistral-7B-Instruct-v0.3-Q4_K_M.gguf` as its default model. Reuse the GGUF
+already in your `go-inf-server/models/mistral-7b` directory on the Mac. Set
+`APP_SOURCE` to that checkout's absolute path; `MODEL_DIR` then selects the
+model directory. The manifest's `__MODEL_DIR__` placeholder is filled when you
+apply it, so no personal path is stored in the YAML. If you choose another
+GGUF, change the `-m` argument in the manifest to match its file name. The
+image defaults to port 8082, so the Pod adds `--port 8080` to keep the voice
+agent's packaged `LLM_BASE_URL` valid. `llama-server` logs a duplicate-port
+warning; the appended value wins. If `.build/llama-server.tar` is absent,
+download the published tag as an OCI tarball using the
+[root README](../README.md#run-a-llama-server-with-metal)
 before starting `macd`. Deploy the three API services first. Their Pods
 report `Running` when the process starts; the LLM and Kokoro need more time
 to load models and Metal kernels. Check their HTTP endpoints before starting
 the agent:
 
 ```sh
+APP_SOURCE="/path/to/go-inf-server"
+MODEL_DIR="$APP_SOURCE/models/mistral-7b"
+test -f "$MODEL_DIR/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
+sed "s|__MODEL_DIR__|$MODEL_DIR|g" examples/voice-cluster/go-inf-server.yaml \
+  | kubectl --kubeconfig .build/livekit-kubeconfig apply -f -
 kubectl --kubeconfig .build/livekit-kubeconfig apply \
-  -f examples/voice-cluster/go-inf-server.yaml \
   -f examples/voice-cluster/whisper.yaml \
   -f examples/voice-cluster/kokoro.yaml
 curl http://127.0.0.1:8080/health
@@ -127,15 +136,15 @@ the browser at the local LiveKit signaling address. Test API and speech paths:
 
 ```sh
 curl http://127.0.0.1:8090/config
-APP_SOURCE="/path/to/go-inf-server"
 "$APP_SOURCE/scripts/test-speech.sh"
 ```
 
 The speech script transcribes a known sample, synthesizes PCM, and feeds that
 audio back to Whisper. An automated LiveKit room test published Opus speech,
 which Whisper transcribed; the agent then generated and synthesized a reply.
-The current small SmolLM2 model answered that arithmetic question incorrectly,
-so this verifies transport and service integration rather than answer quality.
+That earlier test used SmolLM2, which answered the arithmetic question
+incorrectly. It verified transport and service integration, not the new
+Mistral default or answer quality.
 A browser microphone test still needs a person.
 LiveKit logs use `kubectl logs deployment/livekit`. Native Pod log streaming
 through Kubernetes is not implemented; use `docker -H unix://<socket> ps` to
@@ -152,8 +161,8 @@ manifest and LiveKit kustomization:
 kubectl --kubeconfig .build/livekit-kubeconfig delete \
   -f examples/voice-cluster/agent.yaml \
   -f examples/voice-cluster/kokoro.yaml \
-  -f examples/voice-cluster/whisper.yaml \
-  -f examples/voice-cluster/go-inf-server.yaml
+  -f examples/voice-cluster/whisper.yaml
+kubectl --kubeconfig .build/livekit-kubeconfig -n livekit delete deployment go-inf-server
 kubectl --kubeconfig .build/livekit-kubeconfig -n livekit wait --for=delete pod \
   -l 'app in (go-inf-server,whisper-stt,kokoro-tts,voice-agent)' --timeout=120s
 kubectl --kubeconfig .build/livekit-kubeconfig delete -f examples/voice-cluster/web.yaml

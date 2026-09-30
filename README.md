@@ -120,9 +120,9 @@ Dockerfile limits. The build does not load the image into Docker Desktop.
 
 ## Kubernetes
 
-See the separate [Kubernetes usage guide](docs/KUBERNETES.md) for scheduling a
-Darwin Pod on a virtual node. Kind is the locally tested example, but the
-adapter can connect to any cluster through a dedicated kubeconfig. The
+See the separate [Kubernetes usage guide](docs/KUBERNETES.md) for running a
+single llama server on a native virtual node. Kind is one tested control plane,
+but the adapter can connect to any cluster through a dedicated kubeconfig. The
 [voice cluster guide](docs/VOICE_CLUSTER.md) covers the larger LiveKit setup.
 
 ## Current limits

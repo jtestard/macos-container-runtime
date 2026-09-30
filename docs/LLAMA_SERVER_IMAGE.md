@@ -77,10 +77,13 @@ measured.
 
 The Kubernetes adapter in `kube/cmd/mackube` passes container `args` and one
 read-only `hostPath` directory mount to `macd`. The
+[standalone llama example](KUBERNETES.md) uses this image and mounts SmolLM2
+from the Mac. The
 [voice cluster LLM Deployment](../examples/voice-cluster/go-inf-server.yaml)
-uses this image, mounts SmolLM2 from the Mac, and adds `--port 8080` so the
-existing voice agent can keep its `LLM_BASE_URL`. `macd` registers only one
-image per daemon and does not pull images itself.
+defaults to Mistral 7B Instruct and adds `--port 8080` so the existing voice
+agent can keep its `LLM_BASE_URL`.
+Pull the image into `macd` before creating the Pod; the adapter does not pull
+images.
 
 The older `jtstormz/tiny-web:llama-server-smollm2-001` tag **does** bundle
 SmolLM2. It is an explicit historical variant, not the default composition.
