@@ -162,13 +162,19 @@ func (r *dockerLogReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (d *dockerClient) logs(ctx context.Context, id string, follow bool, tail int) (io.ReadCloser, error) {
+func (d *dockerClient) logs(ctx context.Context, id string, follow bool, tail int, since time.Time, timestamps bool) (io.ReadCloser, error) {
 	path := "/containers/" + url.PathEscape(id) + "/logs?stdout=1&stderr=1&follow=0"
 	if follow {
 		path = "/containers/" + url.PathEscape(id) + "/logs?stdout=1&stderr=1&follow=1"
 	}
 	if tail > 0 {
 		path += "&tail=" + strconv.Itoa(tail)
+	}
+	if !since.IsZero() {
+		path += "&since=" + strconv.FormatInt(since.Unix(), 10)
+	}
+	if timestamps {
+		path += "&timestamps=1"
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://macd"+path, nil)
 	if err != nil {

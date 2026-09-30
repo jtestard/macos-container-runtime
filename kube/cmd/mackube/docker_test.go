@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -63,13 +64,14 @@ func TestDockerLogReaderRemovesStreamHeaders(t *testing.T) {
 }
 
 func TestDockerLogsRequestsTailAndFollowTogether(t *testing.T) {
+	since := time.Unix(1_700_000_000, 0)
 	client := &dockerClient{http: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Path != "/containers/container-id/logs" || r.URL.Query().Get("follow") != "1" || r.URL.Query().Get("tail") != "10" {
+		if r.URL.Path != "/containers/container-id/logs" || r.URL.Query().Get("follow") != "1" || r.URL.Query().Get("tail") != "10" || r.URL.Query().Get("since") != "1700000000" || r.URL.Query().Get("timestamps") != "1" {
 			t.Errorf("unexpected log request: %s", r.URL.String())
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
 	})}}
-	logs, err := client.logs(context.Background(), "container-id", true, 10)
+	logs, err := client.logs(context.Background(), "container-id", true, 10, since, true)
 	if err != nil {
 		t.Fatal(err)
 	}

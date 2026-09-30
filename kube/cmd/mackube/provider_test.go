@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	corev1 "k8s.io/api/core/v1"
@@ -31,9 +33,13 @@ func TestValidatePodAcceptsKubernetesEmptyDefaults(t *testing.T) {
 }
 
 func TestGetContainerLogsAcceptsTailWithFollow(t *testing.T) {
+	before := time.Now().Add(-48 * time.Hour).Unix()
 	docker := &dockerClient{http: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Query().Get("tail") != "10" || r.URL.Query().Get("follow") != "1" {
+		if r.URL.Query().Get("tail") != "10" || r.URL.Query().Get("follow") != "1" || r.URL.Query().Get("timestamps") != "1" {
 			t.Errorf("unexpected log request: %s", r.URL.String())
+		}
+		if got := r.URL.Query().Get("since"); got != fmt.Sprint(before) && got != fmt.Sprint(before+1) {
+			t.Errorf("unexpected since timestamp: %q", got)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
 	})}}
@@ -42,7 +48,7 @@ func TestGetContainerLogsAcceptsTailWithFollow(t *testing.T) {
 		pod:         &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "kokoro"}}}},
 		containerID: "container-id",
 	}
-	logs, err := p.GetContainerLogs(context.Background(), "livekit", "kokoro", "kokoro", api.ContainerLogOpts{Tail: 10, Follow: true})
+	logs, err := p.GetContainerLogs(context.Background(), "livekit", "kokoro", "kokoro", api.ContainerLogOpts{Tail: 10, Follow: true, SinceSeconds: 48 * 60 * 60, Timestamps: true})
 	if err != nil {
 		t.Fatal(err)
 	}

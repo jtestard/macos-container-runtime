@@ -42,6 +42,7 @@ type imageConfig struct {
 type frame struct {
 	stream byte
 	data   []byte
+	at     time.Time
 }
 
 type bindMount struct {
@@ -458,7 +459,7 @@ type logWriter struct {
 
 func (l *logWriter) Write(p []byte) (int, error) {
 	data := append([]byte(nil), p...)
-	f := frame{stream: l.stream, data: data}
+	f := frame{stream: l.stream, data: data, at: time.Now()}
 	l.d.mu.Lock()
 	l.c.logs = append(l.c.logs, f)
 	l.c.logSize += len(data)
@@ -626,6 +627,16 @@ func (d *daemon) list(w http.ResponseWriter) {
 
 func (d *daemon) logs(w http.ResponseWriter, r *http.Request, c *container) {
 	follow := r.URL.Query().Get("follow") == "1" || strings.EqualFold(r.URL.Query().Get("follow"), "true")
+	timestamps := r.URL.Query().Get("timestamps") == "1" || strings.EqualFold(r.URL.Query().Get("timestamps"), "true")
+	since := int64(0)
+	if raw := r.URL.Query().Get("since"); raw != "" {
+		var err error
+		since, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || since < 0 {
+			writeError(w, http.StatusBadRequest, "since must be a nonnegative Unix timestamp")
+			return
+		}
+	}
 	tail := -1
 	if raw := r.URL.Query().Get("tail"); raw != "" && raw != "all" {
 		var err error
@@ -638,6 +649,9 @@ func (d *daemon) logs(w http.ResponseWriter, r *http.Request, c *container) {
 	ch := make(chan frame, 64)
 	d.mu.Lock()
 	history := append([]frame(nil), c.logs...)
+	if since > 0 {
+		history = framesSince(history, time.Unix(since, 0))
+	}
 	if tail >= 0 {
 		history = tailFrames(history, tail)
 	}
@@ -659,8 +673,15 @@ func (d *daemon) logs(w http.ResponseWriter, r *http.Request, c *container) {
 			flusher.Flush()
 		}
 	}
+	lineStarts := [3]bool{false, true, true}
+	writeLog := func(f frame) error {
+		if timestamps {
+			f = timestampFrame(f, &lineStarts)
+		}
+		return writeFrame(w, f)
+	}
 	for _, f := range history {
-		if err := writeFrame(w, f); err != nil {
+		if err := writeLog(f); err != nil {
 			return
 		}
 	}
@@ -671,7 +692,7 @@ func (d *daemon) logs(w http.ResponseWriter, r *http.Request, c *container) {
 	for {
 		select {
 		case f := <-ch:
-			if err := writeFrame(w, f); err != nil {
+			if err := writeLog(f); err != nil {
 				return
 			}
 			flush()
@@ -679,7 +700,7 @@ func (d *daemon) logs(w http.ResponseWriter, r *http.Request, c *container) {
 			for {
 				select {
 				case f := <-ch:
-					if err := writeFrame(w, f); err != nil {
+					if err := writeLog(f); err != nil {
 						return
 					}
 					flush()
@@ -691,6 +712,37 @@ func (d *daemon) logs(w http.ResponseWriter, r *http.Request, c *container) {
 			return
 		}
 	}
+}
+
+func timestampFrame(f frame, lineStarts *[3]bool) frame {
+	stream := int(f.stream)
+	if stream < 1 || stream > 2 {
+		return f
+	}
+	var data []byte
+	for _, b := range f.data {
+		if lineStarts[stream] {
+			data = append(data, f.at.UTC().Format(time.RFC3339Nano)...)
+			data = append(data, ' ')
+			lineStarts[stream] = false
+		}
+		data = append(data, b)
+		if b == '\n' {
+			lineStarts[stream] = true
+		}
+	}
+	f.data = data
+	return f
+}
+
+func framesSince(history []frame, since time.Time) []frame {
+	filtered := make([]frame, 0, len(history))
+	for _, f := range history {
+		if !f.at.Before(since) {
+			filtered = append(filtered, f)
+		}
+	}
+	return filtered
 }
 
 func tailFrames(history []frame, count int) []frame {
@@ -724,7 +776,8 @@ func tailFrames(history []frame, count int) []frame {
 			start -= len(f.data)
 			continue
 		}
-		result = append(result, frame{stream: f.stream, data: f.data[start:]})
+		f.data = f.data[start:]
+		result = append(result, f)
 		start = 0
 	}
 	return result

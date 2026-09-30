@@ -94,10 +94,10 @@ The Pod has the image's default entrypoint, no environment overrides, and
 one read-only `hostPath` directory mounted at an image path that does not
 already exist. The directory is read from the Mac running `macd`. Image pull
 secrets, probes, exec, port forwarding, and metrics are not supported. Native
-Pod logs support `kubectl logs`, `--tail`, `-f`, and `--tail` with `-f` as used
-by Stern. The `--previous`, `--since`, `--timestamps`, and `--limit-bytes`
+Pod logs support `kubectl logs`, `--tail`, `-f`, `--since`, and `--timestamps`,
+including their combination used by Stern. The `--previous` and `--limit-bytes`
 options are not yet supported. Log history is held in memory, up to 1 MiB per
-container; tail selection uses that retained history.
+container; tail and since selection use that retained history.
 
 Kubernetes `Ready` currently means the process is alive; the model can still
 be loading. Check `/health` before sending inference requests. Both `macd`

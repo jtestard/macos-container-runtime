@@ -153,6 +153,7 @@ through Kubernetes, including `--tail` and `-f`:
 
 ```sh
 kubectl --kubeconfig .build/livekit-kubeconfig -n livekit logs deployment/go-inf-server --tail=20
+stern --kubeconfig .build/livekit-kubeconfig -n livekit kokoro
 ```
 
 See [Kubernetes usage](KUBERNETES.md#current-limits) for unsupported log

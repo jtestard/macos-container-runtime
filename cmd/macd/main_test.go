@@ -68,6 +68,36 @@ func TestTailFramesPreservesStreamsAcrossSplitLines(t *testing.T) {
 	}
 }
 
+func TestFramesSince(t *testing.T) {
+	now := time.Now()
+	history := []frame{
+		{stream: 1, data: []byte("old\n"), at: now.Add(-time.Hour)},
+		{stream: 2, data: []byte("recent\n"), at: now},
+	}
+	if got := framesSince(history, now.Add(-time.Minute)); !reflect.DeepEqual(got, history[1:]) {
+		t.Fatalf("framesSince = %#v, want %#v", got, history[1:])
+	}
+}
+
+func TestTimestampFrameAcrossChunksAndStreams(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	lineStarts := [3]bool{false, true, true}
+	for _, tt := range []struct {
+		stream byte
+		data   string
+		want   string
+	}{
+		{stream: 1, data: "first\nsec", want: "2023-11-14T22:13:20Z first\n2023-11-14T22:13:20Z sec"},
+		{stream: 1, data: "ond\n", want: "ond\n"},
+		{stream: 2, data: "error\n", want: "2023-11-14T22:13:20Z error\n"},
+	} {
+		got := timestampFrame(frame{stream: tt.stream, data: []byte(tt.data), at: at}, &lineStarts)
+		if string(got.data) != tt.want {
+			t.Errorf("timestampFrame(%q) = %q, want %q", tt.data, got.data, tt.want)
+		}
+	}
+}
+
 type logStreamRecorder struct {
 	header http.Header
 	chunks chan []byte
@@ -82,15 +112,16 @@ func (w *logStreamRecorder) Write(p []byte) (int, error) {
 }
 
 func TestLogsTailAndFollow(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
 	c := &container{
 		status: "running",
 		done:   make(chan struct{}),
-		logs:   []frame{{stream: 1, data: []byte("old\nrecent\n")}},
+		logs:   []frame{{stream: 1, data: []byte("old\nrecent\n"), at: at}},
 		watch:  make(map[chan frame]struct{}),
 	}
 	d := &daemon{}
 	ctx, cancel := context.WithCancel(context.Background())
-	request := httptest.NewRequestWithContext(ctx, http.MethodGet, "/?follow=1&tail=1", nil)
+	request := httptest.NewRequestWithContext(ctx, http.MethodGet, "/?follow=1&tail=1&since=1699999999&timestamps=1", nil)
 	writer := &logStreamRecorder{header: make(http.Header), chunks: make(chan []byte, 4)}
 	done := make(chan struct{})
 	go func() {
@@ -120,15 +151,15 @@ func TestLogsTailAndFollow(t *testing.T) {
 		}
 		return string(data)
 	}
-	if got := readFrame(); got != "recent\n" {
+	if got := readFrame(); got != "2023-11-14T22:13:20Z recent\n" {
 		t.Fatalf("initial tail = %q", got)
 	}
 	d.mu.Lock()
 	for watcher := range c.watch {
-		watcher <- frame{stream: 2, data: []byte("new\n")}
+		watcher <- frame{stream: 2, data: []byte("new\n"), at: at}
 	}
 	d.mu.Unlock()
-	if got := readFrame(); got != "new\n" {
+	if got := readFrame(); got != "2023-11-14T22:13:20Z new\n" {
 		t.Fatalf("followed log = %q", got)
 	}
 }

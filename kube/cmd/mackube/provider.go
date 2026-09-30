@@ -381,8 +381,8 @@ func statusFor(pod *corev1.Pod, state *dockerInspect) corev1.PodStatus {
 
 func unsupported() error { return fmt.Errorf("macnative does not support this kubelet operation yet") }
 func (p *provider) GetContainerLogs(ctx context.Context, namespace, podName, containerName string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
-	if opts.Previous || opts.LimitBytes != 0 || opts.Timestamps || opts.SinceSeconds != 0 || !opts.SinceTime.IsZero() {
-		return nil, errdefs.InvalidInput("previous, limit, timestamps, and since log options are unsupported")
+	if opts.Previous || opts.LimitBytes != 0 {
+		return nil, errdefs.InvalidInput("previous and limitBytes log options are unsupported")
 	}
 	p.mu.Lock()
 	managed := p.pods[key(namespace, podName)]
@@ -396,7 +396,11 @@ func (p *provider) GetContainerLogs(ctx context.Context, namespace, podName, con
 	}
 	id := managed.containerID
 	p.mu.Unlock()
-	return p.docker.logs(ctx, id, opts.Follow, opts.Tail)
+	since := opts.SinceTime
+	if opts.SinceSeconds > 0 {
+		since = time.Now().Add(-time.Duration(opts.SinceSeconds) * time.Second)
+	}
+	return p.docker.logs(ctx, id, opts.Follow, opts.Tail, since, opts.Timestamps)
 }
 func (p *provider) RunInContainer(context.Context, string, string, string, []string, api.AttachIO) error {
 	return unsupported()
