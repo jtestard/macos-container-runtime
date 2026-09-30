@@ -19,23 +19,23 @@ at `b4ef64b`, Whisper v1.9.1 at `f049fff`, and Node v20.11.1 with npm 10.2.4.
 
 The named contexts below make the toolchains and application sources explicit.
 They are build inputs, not paths the final image uses on the host. Replace the
-source path with your own checkout.
+source path with your own checkout by setting `APP_SOURCE` in your shell.
 
 ```sh
-SOURCE="/absolute/path/to/go-inf-server"
+APP_SOURCE="/path/to/go-inf-server"
 mkdir -p .build/voice-web-context/cmd .build/voice-agent-context/agent \
   .build/node-toolchain/bin .build/node-toolchain/lib/node_modules \
   .build/uv-toolchain .build/voice-launch
-cp "$SOURCE/go.mod" "$SOURCE/go.sum" .build/voice-web-context/
+cp "$APP_SOURCE/go.mod" "$APP_SOURCE/go.sum" .build/voice-web-context/
 rsync -a --delete --exclude node_modules --exclude dist \
-  "$SOURCE/cmd/web/" .build/voice-web-context/cmd/web/
-rsync -a --delete "$SOURCE/agent/src/" .build/voice-agent-context/agent/src/
-cp "$SOURCE/agent/package.json" "$SOURCE/agent/package-lock.json" \
-  "$SOURCE/agent/tsconfig.json" .build/voice-agent-context/agent/
-cp "$SOURCE/speech.env" .build/voice-agent-context/
+  "$APP_SOURCE/cmd/web/" .build/voice-web-context/cmd/web/
+rsync -a --delete "$APP_SOURCE/agent/src/" .build/voice-agent-context/agent/src/
+cp "$APP_SOURCE/agent/package.json" "$APP_SOURCE/agent/package-lock.json" \
+  "$APP_SOURCE/agent/tsconfig.json" .build/voice-agent-context/agent/
+cp "$APP_SOURCE/speech.env" .build/voice-agent-context/
 rsync -a --delete --exclude .git --exclude .venv --exclude node_modules \
   --exclude '*.pth' \
-  "$SOURCE/third_party/Kokoro-FastAPI/" .build/kokoro-source/
+  "$APP_SOURCE/third_party/Kokoro-FastAPI/" .build/kokoro-source/
 cp -L "$(command -v uv)" .build/uv-toolchain/uv
 go build -o .build/voice-launch/launch ./examples/voice-cluster/launcher
 ```
@@ -67,14 +67,15 @@ adjust them if Xcode is installed elsewhere.
 ## Build
 
 ```sh
-CMAKE_TOOLCHAIN='/absolute/path/to/CMake.app/Contents'
+APP_SOURCE="/path/to/go-inf-server"
+CMAKE_TOOLCHAIN="/path/to/CMake.app/Contents"
 docker --context desktop-linux buildx build --platform linux/arm64 \
   -t macvoice-web:local -f examples/voice-cluster/web/Dockerfile \
   --load .build/voice-web-context
 
 docker buildx build --builder macnative --platform darwin/arm64 \
   --build-context "whisper-source=$PWD/.build/whisper-src" \
-  --build-context "whisper-model=$SOURCE/models/whisper" \
+  --build-context "whisper-model=$APP_SOURCE/models/whisper" \
   --build-context "cmake-toolchain=$CMAKE_TOOLCHAIN" \
   --progress plain --output type=oci,dest=.build/whisper-base-en.tar \
   examples/voice-cluster/whisper
@@ -89,7 +90,7 @@ docker buildx build --builder macnative --platform darwin/arm64 \
 docker buildx build --builder macnative --platform darwin/arm64 \
   --build-context "uv-toolchain=$PWD/.build/uv-toolchain" \
   --build-context "kokoro-source=$PWD/.build/kokoro-source" \
-  --build-context "kokoro-weights=$SOURCE/third_party/Kokoro-FastAPI/api/src/models/v1_0" \
+  --build-context "kokoro-weights=$APP_SOURCE/third_party/Kokoro-FastAPI/api/src/models/v1_0" \
   --build-context "voice-launcher=$PWD/.build/voice-launch" \
   --progress plain --output type=oci,dest=.build/kokoro-mps.tar \
   examples/voice-cluster/kokoro

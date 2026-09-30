@@ -24,12 +24,16 @@ git clone https://github.com/jtestard/macos-container-runtime.git
 cd macos-container-runtime
 ./install.sh
 ./scripts/enable-macd.sh
+docker context use macnative
 ```
 
 `install.sh` builds and installs `macd` and `imgrun` in your user Application
 Support directory, prepares an image store, and creates the `macnative` Docker
-context. The separate startup script loads a user LaunchAgent, so `macd` starts
-at login and restarts if it exits. Docker Desktop does not need to be running.
+context. `docker context use macnative` selects it for subsequent Docker
+commands and persists across shells. The separate startup script loads a user
+LaunchAgent, so `macd` starts at login and restarts if it exits. Docker Desktop
+does not need to be running.
+
 Run `./scripts/disable-macd.sh` to stop and remove the LaunchAgent. See the
 [runtime guide](docs/DOCKER_RUNTIME.md) for manual startup and configuration.
 
@@ -39,11 +43,11 @@ Pull the small `darwin/arm64` Go server from Docker Hub and run it with the
 regular Docker CLI:
 
 ```sh
-docker --context macnative pull jtstormz/tiny-web:dev-002
-docker --context macnative run -d --name tiny-web jtstormz/tiny-web:dev-002 --port 8081
+docker pull jtstormz/tiny-web:dev-002
+docker run -d --name tiny-web jtstormz/tiny-web:dev-002 --port 8081
 curl http://127.0.0.1:8081/healthz
-docker --context macnative logs tiny-web
-docker --context macnative rm -f tiny-web
+docker logs tiny-web
+docker rm -f tiny-web
 ```
 
 The server listens directly on the Mac. `--port` selects an available port;
@@ -55,29 +59,28 @@ without it, the server uses 8080. Its source is in
 This model-free llama.cpp image runs natively on macOS and uses Metal. Keep the
 GGUF in a directory on the Mac and mount it read-only into the image. See the
 [image composition note](docs/LLAMA_SERVER_IMAGE.md) for its build inputs and
-volume contract.
+volume contract. Replace the `MODEL_DIR` value below with the absolute path to
+the directory containing your GGUF file.
 
 ```sh
-docker --context macnative pull jtstormz/tiny-web:llama-server-001
-MODEL_DIR='/absolute/path/to/your/model-directory'
-docker --context macnative run -d --name llama-server \
+docker pull jtstormz/tiny-web:llama-server-001
+MODEL_DIR="/path/to/model-directory"
+docker run -d --name llama-server \
   -v "$MODEL_DIR:/app/models:ro" \
   jtstormz/tiny-web:llama-server-001 \
   -m models/SmolLM2-360M-Instruct-Q8_0.gguf
-docker --context macnative logs llama-server
+docker logs llama-server
 curl http://127.0.0.1:8082/health
-docker --context macnative rm -f llama-server
+docker rm -f llama-server
 ```
 
-Set `MODEL_DIR` to the directory containing the named GGUF. The server may
-return HTTP 503 from `/health` while loading the model. It listens on the
-Mac's port 8082, which must be free.
+The server may return HTTP 503 from `/health` while loading the model. It
+listens on the Mac's port 8082, which must be free.
 
-Both examples use the Mac's network directly; `-p` is not supported. Always
-specify `--context macnative` for runtime commands. You can run
-`docker context use macnative` to make it your default. Plain `docker ps` may
-otherwise show containers managed by Docker Desktop. Pulled images remain
-available after `macd` restarts.
+Both examples use the Mac's network directly; `-p` is not supported. Docker
+commands now use `macnative` until you select another context. Run
+`docker context use desktop-linux` to return to Docker Desktop. Pulled images
+remain available after `macd` restarts.
 
 The [runtime guide](docs/DOCKER_RUNTIME.md) lists the supported Docker
 commands and current limitations.
@@ -164,9 +167,9 @@ usual socket:
 In another terminal, choose an available port:
 
 ```sh
-docker --context macnative run -d --name tiny-web tiny-web:latest --port 8081
+docker run -d --name tiny-web tiny-web:latest --port 8081
 curl http://127.0.0.1:8081/healthz
-docker --context macnative rm -f tiny-web
+docker rm -f tiny-web
 ```
 
 The server defaults to port 8080 when `--port` is omitted. The

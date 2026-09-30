@@ -36,13 +36,13 @@ model. It remains an explicit, versioned example rather than the default.
 The sibling `go-inf-server` checkout supplies the pinned llama.cpp source.
 Keep the nested `tools/mtmd/models` headers when staging it. The final image
 contains only the server binary. Replace the source and CMake paths with the
-paths on your Mac.
+paths on your Mac by setting `APP_SOURCE` and `CMAKE_TOOLCHAIN` in your shell.
 
 ```sh
-SOURCE="/absolute/path/to/go-inf-server"
+APP_SOURCE="/path/to/go-inf-server"
 mkdir -p .build/llama-source
 rsync -a --delete --exclude .git --exclude /build/ --exclude /models/ \
-  "$SOURCE/llama.cpp/" .build/llama-source/
+  "$APP_SOURCE/llama.cpp/" .build/llama-source/
 cat > .build/llama-source/.dockerignore <<'EOF'
 .git/
 /build/
@@ -61,7 +61,7 @@ EOF
 docker buildx create --name macnative-llama --driver remote \
   unix:///private/tmp/macos-buildkit-llama.sock
 
-CMAKE_TOOLCHAIN='/absolute/path/to/CMake.app/Contents'
+CMAKE_TOOLCHAIN="/path/to/CMake.app/Contents"
 docker buildx build --builder macnative-llama --platform darwin/arm64 \
   --build-context "llama-source=$PWD/.build/llama-source" \
   --build-context "cmake-toolchain=$CMAKE_TOOLCHAIN" \
@@ -85,10 +85,10 @@ Start a local daemon for the image:
 In another terminal, mount a model directory and name the model to load:
 
 ```sh
-SOURCE="/absolute/path/to/go-inf-server"
+APP_SOURCE="/path/to/go-inf-server"
 docker -H unix:///private/tmp/macnative-llama-docker.sock run -d \
   --name llama-server \
-  -v "$SOURCE/models/smollm2-360m:/app/models:ro" \
+  -v "$APP_SOURCE/models/smollm2-360m:/app/models:ro" \
   llama-server:local -m models/SmolLM2-360M-Instruct-Q8_0.gguf
 
 docker -H unix:///private/tmp/macnative-llama-docker.sock ps

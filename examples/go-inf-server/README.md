@@ -25,7 +25,7 @@ these commands from this repository's root, replacing `APP_SOURCE` with your
 own checkout:
 
 ```sh
-APP_SOURCE='/absolute/path/to/go-inf-server'
+APP_SOURCE="/path/to/go-inf-server"
 mkdir -p .build
 GO_TOOLCHAIN="$(GOMODCACHE="$PWD/.build/toolchain-modcache" GOTOOLCHAIN=auto \
   go -C "$APP_SOURCE" env GOROOT)"

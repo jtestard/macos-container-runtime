@@ -55,7 +55,7 @@ private repository.
 command arguments and read-only `-v` binds. For example:
 
 ```sh
-MODEL_DIR='/absolute/path/to/your/model-directory'
+MODEL_DIR="/path/to/model-directory"
 docker -H unix:///private/tmp/macnative-llama-docker.sock run -d \
   --name llama-server \
   -v "$MODEL_DIR:/app/models:ro" \

@@ -99,10 +99,9 @@ node so the scheduler selects the correct registered image:
   -node-name macnative-agent -slot agent -socket /private/tmp/macnative-agent-docker.sock
 ```
 
-The LLM Deployment uses the model-free `llama-server` image. Its read-only
-`hostPath` points to
-`/absolute/path/to/go-inf-server/models/smollm2-360m` on the Mac. Replace this
-placeholder in the manifest with the real absolute model directory. The image
+The LLM Deployment uses the model-free `llama-server` image. Set `MODEL_DIR`
+to the absolute model directory on the Mac and replace the `hostPath.path`
+placeholder in the manifest with that value. The image
 defaults to port 8082, so the Pod adds `--port 8080` to keep the voice agent's
 packaged `LLM_BASE_URL` valid. `llama-server` logs a duplicate-port warning;
 the appended value wins. If `.build/llama-server.tar` is absent, download the
@@ -128,8 +127,8 @@ the browser at the local LiveKit signaling address. Test API and speech paths:
 
 ```sh
 curl http://127.0.0.1:8090/config
-SOURCE='/absolute/path/to/go-inf-server'
-"$SOURCE/scripts/test-speech.sh"
+APP_SOURCE="/path/to/go-inf-server"
+"$APP_SOURCE/scripts/test-speech.sh"
 ```
 
 The speech script transcribes a known sample, synthesizes PCM, and feeds that

@@ -6,13 +6,14 @@ layout; it does not compile the application from a Dockerfile. This path is
 separate from the [Buildx example](../README.md) and its small Docker runtime.
 
 Run the commands below from the repository root.
-Replace the source path with your own checkout.
+Set `APP_SOURCE` in your shell to the absolute path of your checkout.
 
 ## Build the OCI layout
 
 ```sh
+APP_SOURCE="/path/to/go-inf-server"
 go run ./cmd/imgbuild \
-  -source '/absolute/path/to/go-inf-server' \
+  -source "$APP_SOURCE" \
   -output dist/go-inf-server-smollm2
 ```
 
