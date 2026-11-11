@@ -12,6 +12,19 @@ is one tested option. Run these commands from the repository root.
 You need a running `macd` (see the [installation guide](../README.md)),
 `docker`, `kubectl`, and Go 1.26 or later.
 
+To create a local Kind cluster, run it against Docker Desktop, not `macd`.
+Kind uses the current Docker context, and the README makes `macnative` the
+default; under that context `kind get clusters` silently lists nothing and
+`kind create cluster` fails because `macd` cannot run Linux images:
+
+```sh
+DOCKER_CONTEXT=desktop-linux kind create cluster --name macnative
+```
+
+This also selects the new `kind-macnative` kubectl context, which step 2
+saves. Remove it later with
+`DOCKER_CONTEXT=desktop-linux kind delete cluster --name macnative`.
+
 ## Run the llama server
 
 1. Pull the published `darwin/arm64` image into `macd`:
