@@ -53,7 +53,7 @@ not in `~/Library/LaunchAgents`, which is why it never starts at login.
 1. Pull the published `darwin/arm64` image into `macd` and start the cluster:
 
    ```sh
-   docker pull jtstormz/llama-server:ee0445c
+   docker --context macnative pull jtstormz/llama-server:ee0445c
    ./scripts/kube-up.sh
    ```
 
@@ -78,7 +78,7 @@ not in `~/Library/LaunchAgents`, which is why it never starts at login.
    ```sh
    curl http://127.0.0.1:8082/health
    kubectl --context kind-macnative logs deployment/macnative-llama --tail=20
-   docker ps
+   docker --context macnative ps
    ```
 
 4. Remove the example, or the whole cluster:
@@ -106,9 +106,9 @@ environment variables:
 | `MACD_SOCKET` | `/private/tmp/macnative-docker.sock` | The `macd` instance that runs this cluster's Pods. |
 | `KIND_DOCKER_CONTEXT` | `desktop-linux` | Docker context that runs Kind. |
 
-The scripts always run Kind against Docker Desktop. Running `kind` by hand
-while `macnative` is your Docker context does not work: Kind follows the
-current context, so `kind get clusters` silently lists nothing and
+The scripts always run Kind against Docker Desktop. If you made `macnative`
+your default Docker context, running `kind` by hand does not work: Kind follows
+the current context, so `kind get clusters` silently lists nothing and
 `kind create cluster` fails because `macd` cannot run Linux images. Prefix
 such commands with `DOCKER_CONTEXT=desktop-linux`.
 

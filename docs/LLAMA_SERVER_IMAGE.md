@@ -27,8 +27,8 @@ a **relative** model path:
 
 ```sh
 MODEL_DIR="$HOME/models/smollm2-360m"
-docker pull jtstormz/llama-server:ee0445c
-docker run -d --name llama-server \
+docker --context macnative pull jtstormz/llama-server:ee0445c
+docker --context macnative run -d --name llama-server \
   -v "$MODEL_DIR:/app/models:ro" \
   jtstormz/llama-server:ee0445c -m models/SmolLM2-360M-Instruct-Q8_0.gguf
 ```

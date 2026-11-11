@@ -46,7 +46,7 @@ docker context create macnative \
   --docker host=unix:///private/tmp/macnative-docker.sock
 ```
 
-The Buildx **builder** named `macnative` and the Docker **context** named
+The Buildx **builder** `macnative-build` and the Docker **context**
 `macnative` are separate settings: the builder points to the BuildKit socket,
 and the context points to this runtime socket.
 

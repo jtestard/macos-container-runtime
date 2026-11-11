@@ -24,15 +24,20 @@ git clone https://github.com/jtestard/macos-container-runtime.git
 cd macos-container-runtime
 ./install.sh
 ./scripts/enable-macd.sh
-docker context use macnative
 ```
 
 `install.sh` builds and installs `macd` and `imgrun` in your user Application
 Support directory, prepares an image store, and creates the `macnative` Docker
-context. `docker context use macnative` selects it for subsequent Docker
-commands and persists across shells. The separate startup script loads a user
-LaunchAgent, so `macd` starts at login and restarts if it exits. Docker Desktop
-does not need to be running.
+context. It does not change your current context, so Docker Desktop stays your
+default. The separate startup script loads a user LaunchAgent, so `macd` starts
+at login and restarts if it exits. Docker Desktop does not need to be running.
+
+The commands below pass `--context macnative` to reach the native runtime. If
+you would rather leave it out, make `macnative` your default with
+`docker context use macnative`, and return with
+`docker context use desktop-linux`. While `macnative` is the default, plain
+`docker` commands, and tools such as `kind`, talk to the native runtime instead
+of Docker Desktop.
 
 Run `./scripts/disable-macd.sh` to stop and remove the LaunchAgent. See the
 [runtime guide](docs/DOCKER_RUNTIME.md) for manual startup and configuration.
@@ -43,11 +48,11 @@ Pull the small `darwin/arm64` Go server from Docker Hub and run it with the
 regular Docker CLI:
 
 ```sh
-docker pull jtstormz/tiny-web:dev-002
-docker run -d --name tiny-web jtstormz/tiny-web:dev-002 --port 8081
+docker --context macnative pull jtstormz/tiny-web:dev-002
+docker --context macnative run -d --name tiny-web jtstormz/tiny-web:dev-002 --port 8081
 curl http://127.0.0.1:8081/healthz
-docker logs tiny-web
-docker rm -f tiny-web
+docker --context macnative logs tiny-web
+docker --context macnative rm -f tiny-web
 ```
 
 The server listens directly on the Mac. `--port` selects an available port;
@@ -68,23 +73,22 @@ MODEL_DIR="$HOME/models/smollm2-360m"
 mkdir -p "$MODEL_DIR"
 curl -fL -o "$MODEL_DIR/SmolLM2-360M-Instruct-Q8_0.gguf" \
   https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q8_0.gguf
-docker pull jtstormz/llama-server:ee0445c
-docker run -d --name llama-server \
+docker --context macnative pull jtstormz/llama-server:ee0445c
+docker --context macnative run -d --name llama-server \
   -v "$MODEL_DIR:/app/models:ro" \
   jtstormz/llama-server:ee0445c \
   -m models/SmolLM2-360M-Instruct-Q8_0.gguf
-docker logs llama-server
+docker --context macnative logs llama-server
 curl http://127.0.0.1:8082/health
-docker rm -f llama-server
+docker --context macnative rm -f llama-server
 ```
 
 The server may return HTTP 503 from `/health` while loading the model. It
 listens on the Mac's port 8082, which must be free.
 
-Both examples use the Mac's network directly; `-p` is not supported. Docker
-commands now use `macnative` until you select another context. Run
-`docker context use desktop-linux` to return to Docker Desktop. Pulled images
-remain available after `macd` restarts.
+Both examples use the Mac's network directly; `-p` is not supported. Pulled
+images remain available after `macd` restarts. Native containers appear only in
+`docker --context macnative ps`, not in Docker Desktop's `docker ps`.
 
 The [runtime guide](docs/DOCKER_RUNTIME.md) lists the supported Docker
 commands and current limitations.
@@ -184,9 +188,9 @@ usual socket:
 In another terminal, choose an available port:
 
 ```sh
-docker run -d --name tiny-web tiny-web:latest --port 8081
+docker --context macnative run -d --name tiny-web tiny-web:latest --port 8081
 curl http://127.0.0.1:8081/healthz
-docker rm -f tiny-web
+docker --context macnative rm -f tiny-web
 ```
 
 The server defaults to port 8080 when `--port` is omitted. The
