@@ -107,14 +107,22 @@ Start BuildKit in a terminal:
   --containerd-worker=false
 ```
 
-Register its remote Buildx builder once:
+Register it once as a remote Buildx builder named `macnative-build`:
 
 ```sh
-docker buildx create --name macnative --driver remote unix:///private/tmp/macos-buildkit.sock
+docker buildx create --name macnative-build --driver remote unix:///private/tmp/macos-buildkit.sock
 ```
 
-Buildx exports an OCI tarball for the runtime. The `macnative` Buildx builder
-and Docker context share a name but use different sockets. The
+The two names are deliberate. `macnative` is the **Docker context** that
+`install.sh` created; it points at `macd`'s socket and runs images.
+`macnative-build` is the **Buildx builder**; it points at the BuildKit socket
+and builds images. They cannot share a name because Buildx treats every
+Docker context as a builder of the same name, so
+`docker buildx create --name macnative` fails with `instance name "macnative"
+already exists as context builder`. Pass `--builder macnative-build` to
+`docker buildx build`; `docker buildx ls` lists both.
+
+Buildx exports an OCI tarball for the runtime. The
 [BuildKit guide](docs/BUILDKIT_PROTOTYPE.md) documents the patch and
 Dockerfile limits. The build does not load the image into Docker Desktop.
 
@@ -148,7 +156,7 @@ The [tiny-web example](examples/tiny-web/README.md) is a small Go HTTP server.
 With the native BuildKit worker running, build it from its Dockerfile:
 
 ```sh
-docker buildx build --builder macnative --platform darwin/arm64 \
+docker buildx build --builder macnative-build --platform darwin/arm64 \
   --build-context "go-toolchain=$(go env GOROOT)" \
   --progress plain \
   --output type=oci,dest=.build/tiny-web.tar \

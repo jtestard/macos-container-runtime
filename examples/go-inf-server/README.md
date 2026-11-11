@@ -17,7 +17,7 @@ not rebuild llama.cpp or download the model.
 
 ## Build
 
-Start the patched native BuildKit worker and register the `macnative` Buildx
+Start the patched native BuildKit worker and register the `macnative-build` Buildx
 builder as described in the [root README](../../README.md). The source module
 requires Go 1.26. On this Mac, the downloaded Go toolchain's module-cache
 directories were read-only, so the local context uses a writable copy. Run
@@ -32,7 +32,7 @@ GO_TOOLCHAIN="$(GOMODCACHE="$PWD/.build/toolchain-modcache" GOTOOLCHAIN=auto \
 cp -R "$GO_TOOLCHAIN" .build/go1.26-writable
 chmod -R u+w .build/go1.26-writable
 
-docker buildx build --builder macnative --platform darwin/arm64 \
+docker buildx build --builder macnative-build --platform darwin/arm64 \
   --build-context "go-toolchain=$PWD/.build/go1.26-writable" \
   --build-context "app=$APP_SOURCE" \
   --progress plain \
