@@ -42,6 +42,26 @@ func pullTag(from, tag string) (string, error) {
 	return from + ":" + tag, nil
 }
 
+// canonicalRef returns the fully-qualified form Docker uses for an image
+// reference, so "jtstormz/x:t", "docker.io/jtstormz/x:t" and
+// "index.docker.io/jtstormz/x:t" compare equal, and a missing tag means
+// "latest". It returns "" when ref is not a valid reference.
+func canonicalRef(ref string) string {
+	parsed, err := name.ParseReference(ref)
+	if err != nil {
+		return ""
+	}
+	registry := parsed.Context().RegistryStr()
+	if registry == name.DefaultRegistry {
+		registry = "docker.io"
+	}
+	separator := ":"
+	if _, ok := parsed.(name.Digest); ok {
+		separator = "@"
+	}
+	return registry + "/" + parsed.Context().RepositoryStr() + separator + parsed.Identifier()
+}
+
 func registryAuth(header string) (authn.Authenticator, error) {
 	if header == "" {
 		return nil, nil

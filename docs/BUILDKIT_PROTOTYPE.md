@@ -49,11 +49,13 @@ Start the daemon in one terminal:
 ```
 
 In another terminal, register the Buildx remote builder once, then build the
-sample Dockerfile:
+sample Dockerfile. The builder is named `macnative-build` because the
+`macnative` name already belongs to the runtime's Docker context, which Buildx
+also lists as a builder:
 
 ```sh
-docker buildx create --name macnative --driver remote unix:///private/tmp/macos-buildkit.sock
-docker buildx build --builder macnative --platform darwin/arm64 \
+docker buildx create --name macnative-build --driver remote unix:///private/tmp/macos-buildkit.sock
+docker buildx build --builder macnative-build --platform darwin/arm64 \
   --no-cache --progress plain \
   --output type=oci,dest=.build/cpu-run.tar examples/cpu-run
 ```

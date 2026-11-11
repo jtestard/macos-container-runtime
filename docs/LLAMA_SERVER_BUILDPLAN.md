@@ -16,8 +16,8 @@ For the exact build inputs, OCI contents, and runtime mount contract, see the
 - [x] Run with SmolLM2 mounted from the sibling project; verify `/health`,
   `docker ps`, `docker logs`, `docker inspect`, and a chat completion.
 - [x] Check the bind parser and runner path validation with focused Go tests.
-- [x] Publish and inspect the model-free image in the private Docker Hub
-  repository.
+- [x] Publish and inspect the model-free image in the `jtstormz/tiny-web`
+  Docker Hub repository (now public).
 - [x] Pass a Kubernetes container's arguments and one read-only hostPath
   directory through `mackube` to `macd`; cover accepted and rejected mounts
   with focused tests.
@@ -69,9 +69,16 @@ docker buildx build --builder macnative-llama --platform darwin/arm64 \
   examples/llama-server
 ```
 
-The Dockerfile uses this Mac's Xcode compiler. The current native BuildKit
-worker runs `RUN` in a host snapshot, so that compiler path must exist on the
-Mac. The CMake executable comes from the named build context.
+The Dockerfile uses this Mac's compiler, found with `xcrun` from the active
+developer directory (`xcode-select -p`). The free Command Line Tools
+(`xcode-select --install`) are enough; full Xcode and an Apple account are not
+required. The current native BuildKit worker runs `RUN` in a host snapshot, so
+the compiler must be installed on the Mac. The CMake executable comes from the
+named build context: a `CMake.app/Contents` directory or a Homebrew CMake keg
+such as `/opt/homebrew/Cellar/cmake/<version>` (use the real path, not the
+`/opt/homebrew/opt` symlink). CMake may print harmless `xcrun: error: couldn't
+create cache file` lines because Seatbelt blocks writes to the default
+temporary directory.
 
 ## Run with a model volume
 
@@ -117,13 +124,11 @@ The default model-free image is `jtstormz/tiny-web:llama-server-001`, OCI
 index digest
 `sha256:ce40c59fa3cba71fce515d6dc5be37fd17ae6c97482e74f0ddfa8c0bb577ad05`.
 `docker buildx imagetools inspect` confirmed its `darwin/arm64` manifest. The
-existing private `tiny-web` repository is reused because this Docker Hub plan
-does not allow another private repository. The local daemon still needs an OCI
-tarball; follow the [main README's download steps](../README.md#run-an-image-from-docker-hub)
-with this tag, then start `macd` and use the volume-backed `docker run` command
-above with the matching tag.
+public `tiny-web` repository holds the project's images as tags. `macd` pulls
+it directly with `docker pull`; follow the
+[main README's llama server steps](../README.md#run-a-llama-server-with-metal).
 
 The prior bundled image remains available at
 `jtstormz/tiny-web:llama-server-smollm2-001`, index digest
 `sha256:150e7b1b558f7443abff12969bcf8be1c1ae491cfda833b95112b3533138549d`.
-For registry downloads, see the [main README](../README.md#run-an-image-from-docker-hub).
+For registry downloads, see the [main README](../README.md#run-a-llama-server-with-metal).

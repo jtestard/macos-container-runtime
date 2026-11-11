@@ -6,13 +6,14 @@ copied into that stage. The final stage contains only the server binary.
 
 ## Build
 
-Start the patched native `buildkitd` and register the `macnative` Buildx remote
-builder as described in [BUILDKIT_PROTOTYPE.md](../../docs/BUILDKIT_PROTOTYPE.md).
+Start the patched native `buildkitd` and register the `macnative-build` Buildx
+remote builder (distinct from the `macnative` Docker context) as described in
+[BUILDKIT_PROTOTYPE.md](../../docs/BUILDKIT_PROTOTYPE.md).
 Use an installed macOS arm64 Go 1.24 distribution as the named build context:
 
 ```sh
 mkdir -p .build
-docker buildx build --builder macnative --platform darwin/arm64 \
+docker buildx build --builder macnative-build --platform darwin/arm64 \
   --build-context "go-toolchain=$(go env GOROOT)" \
   --progress plain \
   --output type=oci,dest=.build/tiny-web.tar \

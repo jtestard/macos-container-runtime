@@ -11,7 +11,7 @@ the executable build and run commands are in the
 | --- | --- | --- |
 | `llama-source` named context | Staged llama.cpp source from the sibling `go-inf-server/llama.cpp` checkout; verified at commit `ee0445c`. Top-level model files are excluded, while source headers under `tools/mtmd/models` are retained. | No |
 | `cmake-toolchain` named context | macOS CMake distribution, copied into the build stage at `/cmake`. | No |
-| Host Xcode compiler, SDK, and `make` | Used by the current native BuildKit worker during `RUN`. The worker executes in a writable host snapshot and references these host paths directly. | No |
+| Host compiler, SDK, and `make` | Found with `xcrun` from the Command Line Tools or Xcode and used by the current native BuildKit worker during `RUN`. The worker executes in a writable host snapshot and references these host paths directly. | No |
 | GGUF model | Not a build input. | No |
 
 The `build` stage starts from `scratch`, copies the source and CMake contexts,
@@ -42,12 +42,12 @@ GGUF. The image configuration sets:
 | Default command | None; the caller supplies `-m` and a model path |
 | Exposed port metadata | `8082/tcp` |
 
-The image is published in the existing private Docker Hub repository as
+The image is published in the public Docker Hub repository as
 `jtstormz/tiny-web:llama-server-001`, OCI index digest
 `sha256:ce40c59fa3cba71fce515d6dc5be37fd17ae6c97482e74f0ddfa8c0bb577ad05`.
-The index contains a `darwin/arm64` runnable manifest. The repository name is
-shared with other images because this Docker Hub plan does not permit another
-private repository.
+The index contains a `darwin/arm64` runnable manifest. Anyone can pull it
+without logging in. The `tiny-web` repository name is shared with the
+project's other images, which are published as tags.
 
 ## Runtime model contract
 

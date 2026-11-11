@@ -20,9 +20,9 @@ The build interface is the installed, unmodified Docker CLI through Buildx
 remote and a regular Dockerfile. The intended workflow is:
 
 ```text
-docker buildx create --name macnative --driver remote \
+docker buildx create --name macnative-build --driver remote \
   unix:///path/to/native-buildkit.sock
-docker buildx build --builder macnative --platform darwin/arm64 \
+docker buildx build --builder macnative-build --platform darwin/arm64 \
   -t 127.0.0.1:5000/go-inf-server:smollm2 --push .
 ```
 
@@ -116,10 +116,12 @@ own content store and cache are distinct from the registry's persistent blobs.
 The selected build interface is Buildx's `remote` driver. It points at a
 manually managed BuildKit service over `unix://...`; it does not use our
 registry as a build endpoint. The named builder is selected explicitly with
-`docker buildx build --builder macnative`. Docker also documents
-`docker build --builder macnative`, but the Buildx form makes the selected
+`docker buildx build --builder macnative-build`. Docker also documents
+`docker build --builder macnative-build`, but the Buildx form makes the selected
 builder and `--push` behavior clear. A Docker context is not required for the
-Buildx remote builder; the separate runtime prototype now has one.
+Buildx remote builder. The separate runtime prototype has a Docker context
+named `macnative`; Buildx lists every Docker context as a builder of the same
+name, so the BuildKit builder uses the distinct name `macnative-build`.
 
 The service must speak BuildKit's API and provide a worker capable of
 `darwin/arm64` operations. Simply listening on a socket is insufficient.
@@ -228,7 +230,7 @@ This is a proposed sequence for review, not an implementation commitment.
 | A. Native execution root view | A Mach-O program started from a staged image root reads intended image files, does not accidentally read equivalent host paths, and can initialize Metal. Document privileges and macOS version constraints. |
 | B. BuildKit service survey | Determine what runs on macOS arm64, what must be ported, and whether a native worker can register with the existing frontend, solver, and exporter. Record the pinned BuildKit version and source changes. |
 | C. Buildx connection | `docker buildx ls` and `docker buildx inspect macnative` recognize a host-local service that advertises `darwin/arm64`. |
-| D. Basic Dockerfile | `docker buildx build --builder macnative` builds a `FROM scratch` Dockerfile with `.dockerignore`, `COPY`, `WORKDIR`, `ENV`, `ENTRYPOINT`, and `CMD` from a regular context. |
+| D. Basic Dockerfile | `docker buildx build --builder macnative-build` builds a `FROM scratch` Dockerfile with `.dockerignore`, `COPY`, `WORKDIR`, `ENV`, `ENTRYPOINT`, and `CMD` from a regular context. |
 | E. Native `RUN` | A Dockerfile with a Darwin toolchain base and a `RUN` step compiles a small arm64 Mach-O program, records the expected layer, and fails cleanly when a shell or tool is absent. |
 | F. Registry round trip | Buildx `--push` publishes `go-inf-server` as `darwin/arm64`; the manifest and each layer can be fetched by digest, verified, and materialized into an equivalent filesystem. |
 

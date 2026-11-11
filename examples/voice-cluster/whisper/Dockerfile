@@ -1,16 +1,20 @@
 FROM scratch AS build
+
+# xcrun resolves the compiler from the active developer directory
+# (xcode-select -p), so either Xcode or the Command Line Tools work.
 COPY --from=whisper-source / /src/
 COPY --from=cmake-toolchain / /cmake/
 WORKDIR /work
 RUN mkdir -p output .home .tmp \
     && build_dir="$(pwd -P)" \
     && image_root="$(dirname "$build_dir")" \
+    && export TMPDIR="$build_dir/.tmp" \
     && HOME="$build_dir/.home" TMPDIR="$build_dir/.tmp" \
        "$image_root/cmake/bin/cmake" -S "$image_root/src" -B "$build_dir/output" \
          -DCMAKE_BUILD_TYPE=Release \
-         -DCMAKE_C_COMPILER=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang \
-         -DCMAKE_CXX_COMPILER=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++ \
-         -DCMAKE_MAKE_PROGRAM=/Applications/Xcode.app/Contents/Developer/usr/bin/make \
+         -DCMAKE_C_COMPILER="$(xcrun --find clang)" \
+         -DCMAKE_CXX_COMPILER="$(xcrun --find clang++)" \
+         -DCMAKE_MAKE_PROGRAM="$(xcrun --find make)" \
          -DBUILD_SHARED_LIBS=OFF \
          -DGGML_METAL=ON \
          -DWHISPER_BUILD_TESTS=OFF \

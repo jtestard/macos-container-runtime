@@ -4,7 +4,8 @@ The dedicated `livekit` Kind cluster runs LiveKit and the web UI as Linux/arm64
 images. The four model and agent services run from `darwin/arm64` OCI images
 through the local BuildKit worker, `imgrun`, `macd`, and `mackube`. See
 [VOICE_CLUSTER.md](VOICE_CLUSTER.md) for deployment and ports. The BuildKit
-worker and Buildx builder are set up in the [main README](../README.md).
+worker and the `macnative-build` Buildx builder are set up in the
+[main README](../README.md).
 
 Build outputs go to the ignored `.build` directory. The sibling
 `go-inf-server` checkout supplies the web and agent source, speech settings,
@@ -60,9 +61,10 @@ git clone --branch v1.9.1 --depth 1 \
 ```
 
 The `cmake-toolchain` context must contain `bin/cmake` and its resource tree.
-Set `CMAKE_TOOLCHAIN` to the `CMake.app/Contents` directory on your Mac.
-The Whisper Dockerfile currently names the Xcode compiler paths on this Mac;
-adjust them if Xcode is installed elsewhere.
+Set `CMAKE_TOOLCHAIN` to the `CMake.app/Contents` directory on your Mac, or to
+a Homebrew CMake keg such as `/opt/homebrew/Cellar/cmake/<version>`. The
+Whisper Dockerfile finds the compiler with `xcrun`, so the free Command Line
+Tools (`xcode-select --install`) are enough; full Xcode is not required.
 
 ## Build
 
@@ -73,21 +75,21 @@ docker --context desktop-linux buildx build --platform linux/arm64 \
   -t macvoice-web:local -f examples/voice-cluster/web/Dockerfile \
   --load .build/voice-web-context
 
-docker buildx build --builder macnative --platform darwin/arm64 \
+docker buildx build --builder macnative-build --platform darwin/arm64 \
   --build-context "whisper-source=$PWD/.build/whisper-src" \
   --build-context "whisper-model=$APP_SOURCE/models/whisper" \
   --build-context "cmake-toolchain=$CMAKE_TOOLCHAIN" \
   --progress plain --output type=oci,dest=.build/whisper-base-en.tar \
   examples/voice-cluster/whisper
 
-docker buildx build --builder macnative --platform darwin/arm64 \
+docker buildx build --builder macnative-build --platform darwin/arm64 \
   --build-context "node-toolchain=$PWD/.build/node-toolchain" \
   --build-context "agent-source=$PWD/.build/voice-agent-context" \
   --build-context "voice-launcher=$PWD/.build/voice-launch" \
   --progress plain --output type=oci,dest=.build/voice-agent.tar \
   examples/voice-cluster/agent
 
-docker buildx build --builder macnative --platform darwin/arm64 \
+docker buildx build --builder macnative-build --platform darwin/arm64 \
   --build-context "uv-toolchain=$PWD/.build/uv-toolchain" \
   --build-context "kokoro-source=$PWD/.build/kokoro-source" \
   --build-context "kokoro-weights=$APP_SOURCE/third_party/Kokoro-FastAPI/api/src/models/v1_0" \
