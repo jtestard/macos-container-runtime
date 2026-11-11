@@ -139,6 +139,13 @@ func (d *daemon) imageForLocked(name string) *storedImage {
 			return img
 		}
 	}
+	if want := canonicalRef(name); want != "" {
+		for tag, img := range d.images {
+			if canonicalRef(tag) == want {
+				return img
+			}
+		}
+	}
 	for _, img := range d.images {
 		if img.id == name {
 			return img
