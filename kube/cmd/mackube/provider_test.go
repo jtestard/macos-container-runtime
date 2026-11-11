@@ -97,3 +97,51 @@ func TestValidatePodReadOnlyHostPathAndArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestRefreshMarksPodFailedWhenMacdForgetsContainer(t *testing.T) {
+	reachable := true
+	docker := &dockerClient{http: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if !reachable {
+			return nil, fmt.Errorf("connection refused")
+		}
+		return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(`{"message":"No such container: container-id"}`))}, nil
+	})}}
+	p := newProvider(docker)
+	running := corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{
+		Name: "kokoro", Ready: true, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+	}}}
+	k := key("livekit", "kokoro")
+	p.pods[k] = &managedPod{
+		pod:         &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "kokoro"}}}, Status: running},
+		containerID: "container-id",
+	}
+	var notified []*corev1.Pod
+	p.notify = func(pod *corev1.Pod) { notified = append(notified, pod) }
+
+	// An unreachable macd says nothing about the container: keep the status.
+	reachable = false
+	p.refreshOne(context.Background(), k)
+	if len(notified) != 0 || p.pods[k].pod.Status.Phase != corev1.PodRunning {
+		t.Fatalf("status changed while macd was unreachable: %+v", p.pods[k].pod.Status)
+	}
+
+	reachable = true
+	p.refreshOne(context.Background(), k)
+	if len(notified) != 1 {
+		t.Fatalf("got %d notifications, want 1", len(notified))
+	}
+	got := notified[0].Status
+	if got.Phase != corev1.PodFailed || got.Reason != "ContainerMissing" {
+		t.Fatalf("got phase %q reason %q, want Failed ContainerMissing", got.Phase, got.Reason)
+	}
+	if cs := got.ContainerStatuses[0]; cs.Ready || cs.State.Terminated == nil {
+		t.Fatalf("container status should be terminated and not ready: %+v", cs)
+	}
+
+	// Later polls must not report the same failure again.
+	p.refreshOne(context.Background(), k)
+	if len(notified) != 1 {
+		t.Fatalf("got %d notifications after a repeat poll, want 1", len(notified))
+	}
+}
