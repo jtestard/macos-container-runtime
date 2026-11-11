@@ -34,7 +34,7 @@ func main() {
 	slot := flag.String("slot", "", "optional workload label for Pod placement")
 	socket := flag.String("socket", "/private/tmp/macnative-docker.sock", "macd Docker socket")
 	kubeletAddress := flag.String("kubelet-address", "host.docker.internal", "address Kind uses to reach this Mac's virtual kubelet")
-	kubeletPort := flag.Int("kubelet-port", 10250, "unique HTTPS port for this virtual node")
+	kubeletPort := flag.Int("kubelet-port", 20250, "unique HTTPS port for this virtual node")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "usage: mackube [-kubeconfig path] [-kind-cluster name] [-node-name name] [-slot name] [-socket path] [-kubelet-address host] [-kubelet-port port]")

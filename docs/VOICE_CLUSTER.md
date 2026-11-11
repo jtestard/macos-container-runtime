@@ -27,18 +27,18 @@ The cluster and its `mackube` are created and removed together by
 
 | Service | Placement | Host endpoint |
 | --- | --- | --- |
-| LiveKit SFU | Linux Pod in Kind | 7880/TCP, 7881/TCP, 7882/UDP |
-| Web UI | Linux Pod in Kind | 8090/TCP |
-| `llama-server` LLM | native `macnative` Pod | 8080/TCP |
-| Whisper STT | native `macnative` Pod | 8000/TCP |
-| Kokoro TTS | native `macnative` Pod | 8880/TCP |
-| Voice agent | native `macnative` Pod | 8083/TCP |
+| LiveKit SFU | Linux Pod in Kind | 20880/TCP, 20881/TCP, 20882/UDP |
+| Web UI | Linux Pod in Kind | 20090/TCP |
+| `llama-server` LLM | native `macnative` Pod | 20082/TCP |
+| Whisper STT | native `macnative` Pod | 20084/TCP |
+| Kokoro TTS | native `macnative` Pod | 20085/TCP |
+| Voice agent | native `macnative` Pod | 20083/TCP |
 
 Kind's port mapping is fixed when its node container is created. The
-`kind-cluster.yaml` file maps 7880/TCP for signaling, 7881/TCP and 7882/UDP
-for LiveKit media, and 8090/TCP for the web UI. `kubectl port-forward` cannot
+`kind-cluster.yaml` file maps 20880/TCP for signaling, 20881/TCP and 20882/UDP
+for LiveKit media, and 20090/TCP for the web UI. `kubectl port-forward` cannot
 carry the UDP media stream. The web page advertises
-`ws://localhost:7880` to the browser. The native agent reaches the other
+`ws://localhost:20880` to the browser. The native agent reaches the other
 native services on their local host ports; Kubernetes Service routing to native
 Pods is not implemented yet.
 
@@ -50,11 +50,11 @@ repository, which holds their build recipes and the voice app's source:
 
 | Image | Built from |
 | --- | --- |
-| `jtstormz/llama-server:ee0445c` | upstream llama.cpp; model mounted from the Mac, see [LLAMA_SERVER_IMAGE.md](LLAMA_SERVER_IMAGE.md) |
-| `jtstormz/whisper-server:v1.9.1-base.en` | upstream whisper.cpp with the English base model |
-| `jtstormz/kokoro:b4ef64b` | upstream Kokoro-FastAPI with the Kokoro-82M weights |
-| `jtstormz/voice-agent:0.1.0` | the demo agent in that repository's `voice/agent` |
-| `jtstormz/voice-web:0.1.0` (Linux) | the demo browser client in its `voice/web` |
+| `jtstormz/llama-server:ee0445c-2` | upstream llama.cpp; model mounted from the Mac, see [LLAMA_SERVER_IMAGE.md](LLAMA_SERVER_IMAGE.md) |
+| `jtstormz/whisper-server:v1.9.1-base.en-2` | upstream whisper.cpp with the English base model |
+| `jtstormz/kokoro:b4ef64b-2` | upstream Kokoro-FastAPI with the Kokoro-82M weights |
+| `jtstormz/voice-agent:0.1.1` | the demo agent in that repository's `voice/agent` |
+| `jtstormz/voice-web:0.1.1` (Linux) | the demo browser client in its `voice/web` |
 
 ## Start
 
@@ -76,8 +76,8 @@ it running in a terminal or under a process supervisor:
 In another terminal, pull the four native images into it:
 
 ```sh
-for image in jtstormz/llama-server:ee0445c jtstormz/whisper-server:v1.9.1-base.en \
-    jtstormz/kokoro:b4ef64b jtstormz/voice-agent:0.1.0; do
+for image in jtstormz/llama-server:ee0445c-2 jtstormz/whisper-server:v1.9.1-base.en-2 \
+    jtstormz/kokoro:b4ef64b-2 jtstormz/voice-agent:0.1.1; do
   docker -H unix:///private/tmp/macnative-voice-docker.sock pull "$image"
 done
 ```
@@ -95,7 +95,7 @@ MACD_SOCKET=/private/tmp/macnative-voice-docker.sock \
   ./scripts/kube-up.sh livekit
 ```
 
-If another cluster's `mackube` already uses port 10250, also set
+If another cluster's `mackube` already uses port 20250, also set
 `MACKUBE_PORT` to a free port. Then deploy the Linux Pods; Kind pulls LiveKit
 and the web client from Docker Hub:
 
@@ -115,14 +115,14 @@ manifest below.** Applying the template file directly leaves `__MODEL_DIR__`
 in the Pod, and `mackube` rejects that relative path. If this already happened,
 the rendered `kubectl apply` command below updates the Deployment and replaces
 the rejected Pod. If you choose another GGUF, change the `-m` argument in the
-manifest to match its file name. The image defaults to port 8082, so the Pod
-adds `--port 8080`, where the voice agent expects the LLM.
+manifest to match its file name. The image listens on port 20082, where the
+voice agent expects the LLM.
 On the tested 16 GB Mac, loading this
 GGUF with the image's default mmap mode stalled in Metal residency. The Pod
 sets `--load-mode none` and offloads 16 layers to Metal; that configuration
-reached `/health` successfully. `llama-server` logs duplicate-argument warnings
-for the port and GPU layer count because the Pod overrides image defaults; the
-appended values win. Deploy the three API services first. Their Pods
+reached `/health` successfully. `llama-server` logs a duplicate-argument warning
+for the GPU layer count because the Pod overrides the image default; the
+appended value wins. Deploy the three API services first. Their Pods
 report `Running` when the process starts; the LLM and Kokoro need more time
 to load models and Metal kernels. Check their HTTP endpoints before starting
 the agent:
@@ -138,13 +138,13 @@ sed "s|__MODEL_DIR__|$MODEL_DIR|g" examples/voice-cluster/llama-server.yaml \
 kubectl --context kind-livekit apply \
   -f examples/voice-cluster/whisper.yaml \
   -f examples/voice-cluster/kokoro.yaml
-curl http://127.0.0.1:8080/health
-curl http://127.0.0.1:8880/health
+curl http://127.0.0.1:20082/health
+curl http://127.0.0.1:20085/health
 kubectl --context kind-livekit apply -f examples/voice-cluster/agent.yaml
 kubectl --context kind-livekit -n livekit get pods -o wide
 ```
 
-Open `http://127.0.0.1:8090` and select **Start conversation**. The web server
+Open `http://127.0.0.1:20090` and select **Start conversation**. The web server
 mints a room token, the agent joins and greets you, and both sides' words
 appear on the page as they are transcribed.
 

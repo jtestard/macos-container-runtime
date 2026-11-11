@@ -50,15 +50,16 @@ regular Docker CLI:
 ```sh
 docker context use macnative
 docker pull jtstormz/tiny-web:dev-002
-docker run -d --name tiny-web jtstormz/tiny-web:dev-002 --port 8081
-curl http://127.0.0.1:8081/healthz
+docker run -d --name tiny-web jtstormz/tiny-web:dev-002 --port 20081
+curl http://127.0.0.1:20081/healthz
 docker logs tiny-web
 docker rm -f tiny-web
 docker context use desktop-linux
 ```
 
 The server listens directly on the Mac. `--port` selects an available port;
-without it, the server uses 8080. Its source is in
+without it, this published `dev-002` image uses 8080 (builds from the current
+source default to 20081). Its source is in
 [examples/tiny-web](examples/tiny-web/README.md).
 
 ## Run a llama server with Metal
@@ -76,19 +77,19 @@ mkdir -p "$MODEL_DIR"
 curl -fL -o "$MODEL_DIR/SmolLM2-360M-Instruct-Q8_0.gguf" \
   https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q8_0.gguf
 docker context use macnative
-docker pull jtstormz/llama-server:ee0445c
+docker pull jtstormz/llama-server:ee0445c-2
 docker run -d --name llama-server \
   -v "$MODEL_DIR:/app/models:ro" \
-  jtstormz/llama-server:ee0445c \
+  jtstormz/llama-server:ee0445c-2 \
   -m models/SmolLM2-360M-Instruct-Q8_0.gguf
 docker logs llama-server
-curl http://127.0.0.1:8082/health
+curl http://127.0.0.1:20082/health
 docker rm -f llama-server
 docker context use desktop-linux
 ```
 
 The server may return HTTP 503 from `/health` while loading the model. It
-listens on the Mac's port 8082, which must be free.
+listens on the Mac's port 20082, which must be free.
 
 Both examples use the Mac's network directly; `-p` is not supported. Pulled
 images remain available after `macd` restarts. Native containers appear only
@@ -193,13 +194,13 @@ In another terminal, choose an available port:
 
 ```sh
 docker context use macnative
-docker run -d --name tiny-web tiny-web:latest --port 8081
-curl http://127.0.0.1:8081/healthz
+docker run -d --name tiny-web tiny-web:latest --port 20081
+curl http://127.0.0.1:20081/healthz
 docker rm -f tiny-web
 docker context use desktop-linux
 ```
 
-The server defaults to port 8080 when `--port` is omitted. The
+The server defaults to port 20081 when `--port` is omitted. The
 [macos-native-images](https://github.com/jtestard/macos-native-images)
 repository builds the llama.cpp, whisper.cpp and Kokoro images from upstream
 source with this builder.

@@ -11,7 +11,7 @@
 #   KIND_CONFIG          Kind cluster config file (for example the voice cluster's)
 #   MACKUBE_NODE         node name (default: macnative)
 #   MACKUBE_SLOT         optional macnative.dev/slot node label
-#   MACKUBE_PORT         virtual kubelet HTTPS port (default: 10250)
+#   MACKUBE_PORT         virtual kubelet HTTPS port (default: 20250)
 #   MACD_SOCKET          macd socket (default: /private/tmp/macnative-docker.sock)
 #   KIND_DOCKER_CONTEXT  Docker context that runs Kind (default: desktop-linux)
 set -eu
@@ -25,7 +25,7 @@ PREFIX=${MACNATIVE_PREFIX:-"$HOME/Library/Application Support/macnative"}
 STATE="$PREFIX/kube/$NAME"
 NODE=${MACKUBE_NODE:-macnative}
 SLOT=${MACKUBE_SLOT:-}
-PORT=${MACKUBE_PORT:-10250}
+PORT=${MACKUBE_PORT:-20250}
 SOCKET=${MACD_SOCKET:-/private/tmp/macnative-docker.sock}
 KIND_DOCKER_CONTEXT=${KIND_DOCKER_CONTEXT:-desktop-linux}
 LABEL="dev.macnative.mackube.$NAME"

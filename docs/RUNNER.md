@@ -19,7 +19,7 @@ go build -o .build/imgrun ./cmd/imgrun
 In another terminal:
 
 ```sh
-curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:20081/healthz
 ```
 
 The expected response is `ok`. Press Ctrl-C in the runner terminal to stop
@@ -38,7 +38,7 @@ the file is an arm64 Mach-O executable, and starts it under macOS Seatbelt.
 
 Seatbelt restricts ordinary file writes to the temporary run directory.
 Network access and host reads remain available. The server binds directly to
-host port 8080; `EXPOSE 8080` is metadata and does not publish a port. The
+host port 20081; `EXPOSE 20081` is metadata and does not publish a port. The
 runner has no image-root filesystem mapping, so absolute paths in the program
 still refer to the host. Only trusted images should be run with this prototype.
 

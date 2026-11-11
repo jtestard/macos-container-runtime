@@ -27,17 +27,17 @@ spec:
 
   ports:
     - name: signaling          # WebSocket signaling + server API
-      port: 7880
-      targetPort: 7880
+      port: 20880
+      targetPort: 20880
       nodePort: 30880
       protocol: TCP
     - name: ice-tcp            # ICE/TCP fallback
-      port: 7881
-      targetPort: 7881
+      port: 20881
+      targetPort: 20881
       nodePort: 30881
       protocol: TCP
     - name: ice-udp            # ICE/UDP mux — ALL media rides this one
-      port: 7882
-      targetPort: 7882
+      port: 20882
+      targetPort: 20882
       nodePort: 30882
       protocol: UDP
