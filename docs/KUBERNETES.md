@@ -49,7 +49,10 @@ saves. Remove it later with
    uses only the saved file, so switching your regular Kubernetes context later
    will not change its target cluster.
 
-3. Start one virtual node in a separate terminal:
+3. Start one virtual node in a **separate terminal and leave it running**.
+   `mackube` runs in the foreground; the node is only `Ready` while this
+   process is alive. See [mackube lifecycle](#mackube-lifecycle) for how to
+   check, stop, and restart it.
 
    ```sh
    .build/mackube -kubeconfig .build/macnative-kubeconfig \
@@ -91,8 +94,58 @@ saves. Remove it later with
    kubectl --kubeconfig .build/macnative-kubeconfig delete deployment macnative-llama -n default
    ```
 
-   Stop `mackube` with Ctrl-C after deleting the Deployment. The node will
-   eventually become NotReady without the adapter's heartbeats.
+   Deleting the Deployment stops the native process; `docker ps` no longer
+   lists it. Leave `mackube` running if you will deploy again, or stop it as
+   described in [mackube lifecycle](#mackube-lifecycle).
+
+## mackube lifecycle
+
+`mackube` is a foreground process with no LaunchAgent: it runs only while its
+terminal is open. It does not own the native processes; `macd` does.
+`mackube` translates Pods into `macd` containers and reports node and Pod
+status to Kubernetes.
+
+| State | `mackube` process | Node status | Native processes |
+| --- | --- | --- | --- |
+| Running | alive | `Ready` | started and stopped as Pods come and go |
+| Stopped | exited | `NotReady` after about 40 seconds; the node object stays | keep running under `macd`, unmanaged |
+| Restarted | alive again | `Ready` again (same `-node-name`) | running Pods are adopted, not started twice |
+
+**Check whether it is running:**
+
+```sh
+pgrep -lx mackube
+kubectl --kubeconfig .build/macnative-kubeconfig get node macnative-llama
+```
+
+A `NotReady` node with no `mackube` process is the normal stopped state, not
+an error. Kubernetes schedules nothing onto it until `mackube` returns.
+
+**Stop it cleanly.** Delete native workloads first, so `mackube` can stop
+their processes, then stop the adapter:
+
+```sh
+kubectl --kubeconfig .build/macnative-kubeconfig delete deployment macnative-llama -n default
+docker ps   # no native Pod containers should remain
+```
+
+Then press Ctrl-C in the `mackube` terminal (or `pkill -x mackube` from another
+one). If you stop `mackube` while Pods are still running, their
+processes keep serving under `macd`; start `mackube` again to manage them, or
+remove them with `docker rm -f` (their names start with `kube-`).
+
+**Restart it** with the same step 3 command and the same `-node-name`. The
+node returns to `Ready` within seconds.
+
+**Remove the node** when you are done with the Mac as a node:
+
+```sh
+kubectl --kubeconfig .build/macnative-kubeconfig delete node macnative-llama
+```
+
+`mackube` registers the node again the next time it starts. To remove the
+whole Kind cluster instead, run
+`DOCKER_CONTEXT=desktop-linux kind delete cluster --name macnative`.
 
 ## Current limits
 
