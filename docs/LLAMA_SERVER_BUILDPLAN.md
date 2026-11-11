@@ -69,9 +69,16 @@ docker buildx build --builder macnative-llama --platform darwin/arm64 \
   examples/llama-server
 ```
 
-The Dockerfile uses this Mac's Xcode compiler. The current native BuildKit
-worker runs `RUN` in a host snapshot, so that compiler path must exist on the
-Mac. The CMake executable comes from the named build context.
+The Dockerfile uses this Mac's compiler, found with `xcrun` from the active
+developer directory (`xcode-select -p`). The free Command Line Tools
+(`xcode-select --install`) are enough; full Xcode and an Apple account are not
+required. The current native BuildKit worker runs `RUN` in a host snapshot, so
+the compiler must be installed on the Mac. The CMake executable comes from the
+named build context: a `CMake.app/Contents` directory or a Homebrew CMake keg
+such as `/opt/homebrew/Cellar/cmake/<version>` (use the real path, not the
+`/opt/homebrew/opt` symlink). CMake may print harmless `xcrun: error: couldn't
+create cache file` lines because Seatbelt blocks writes to the default
+temporary directory.
 
 ## Run with a model volume
 

@@ -61,9 +61,10 @@ git clone --branch v1.9.1 --depth 1 \
 ```
 
 The `cmake-toolchain` context must contain `bin/cmake` and its resource tree.
-Set `CMAKE_TOOLCHAIN` to the `CMake.app/Contents` directory on your Mac.
-The Whisper Dockerfile currently names the Xcode compiler paths on this Mac;
-adjust them if Xcode is installed elsewhere.
+Set `CMAKE_TOOLCHAIN` to the `CMake.app/Contents` directory on your Mac, or to
+a Homebrew CMake keg such as `/opt/homebrew/Cellar/cmake/<version>`. The
+Whisper Dockerfile finds the compiler with `xcrun`, so the free Command Line
+Tools (`xcode-select --install`) are enough; full Xcode is not required.
 
 ## Build
 

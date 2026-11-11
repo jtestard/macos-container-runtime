@@ -11,7 +11,7 @@ the executable build and run commands are in the
 | --- | --- | --- |
 | `llama-source` named context | Staged llama.cpp source from the sibling `go-inf-server/llama.cpp` checkout; verified at commit `ee0445c`. Top-level model files are excluded, while source headers under `tools/mtmd/models` are retained. | No |
 | `cmake-toolchain` named context | macOS CMake distribution, copied into the build stage at `/cmake`. | No |
-| Host Xcode compiler, SDK, and `make` | Used by the current native BuildKit worker during `RUN`. The worker executes in a writable host snapshot and references these host paths directly. | No |
+| Host compiler, SDK, and `make` | Found with `xcrun` from the Command Line Tools or Xcode and used by the current native BuildKit worker during `RUN`. The worker executes in a writable host snapshot and references these host paths directly. | No |
 | GGUF model | Not a build input. | No |
 
 The `build` stage starts from `scratch`, copies the source and CMake contexts,
