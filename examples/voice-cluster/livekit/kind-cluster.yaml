@@ -4,19 +4,22 @@
 # kind runs the cluster node as a Docker container inside Docker Desktop's
 # Linux VM. macOS cannot route to that container's 172.18.x address, and
 # Docker fixes a container's published ports at CREATION time — so a cluster
-# built without these mappings can never expose 20882/udp to the host, no
+# built without these mappings can never expose 30882/udp to the host, no
 # matter which Service type you put in front of the pod. That is why this is
 # a dedicated cluster rather than a manifest you drop on an existing one.
 #
 # `kubectl port-forward` is not an escape hatch: it is TCP-only
-# (kubernetes/kubernetes#47862). It would forward 20880 signaling perfectly
+# (kubernetes/kubernetes#47862). It would forward 30880 signaling perfectly
 # and silently drop every media packet — the exact ~10s-then-dead failure.
+#
+# Each NodePort is published on the Mac under the same number, so the port in
+# the Service, here, and on the Mac is one and the same. NodePorts must be in
+# the 30000-32767 range.
 #
 # hostPort must EQUAL the port LiveKit advertises. The server puts
 # `node_ip:udp_port` into its ICE candidates, so the browser dials
-# 127.0.0.1:20882; if the host side were 31882 the candidate would be a lie.
-# containerPort is just the NodePort the Service pins, and can be anything
-# in the 30000-32767 range.
+# 127.0.0.1:30882; if the host side were 31882 the candidate would be a lie.
+# LiveKit therefore listens on the NodePort numbers inside its pod as well.
 #
 # listenAddress 127.0.0.1 keeps an unauthenticated dev SFU off the LAN.
 
@@ -27,18 +30,18 @@ nodes:
   - role: control-plane
     extraPortMappings:
       - containerPort: 30880      # signaling (WebSocket) + server API
-        hostPort: 20880
+        hostPort: 30880
         listenAddress: "127.0.0.1"
         protocol: TCP
       - containerPort: 30881      # ICE/TCP fallback
-        hostPort: 20881
+        hostPort: 30881
         listenAddress: "127.0.0.1"
         protocol: TCP
       - containerPort: 30882      # ICE/UDP mux — ALL media rides this one
-        hostPort: 20882
+        hostPort: 30882
         listenAddress: "127.0.0.1"
         protocol: UDP
       - containerPort: 30900      # browser web UI
-        hostPort: 20090
+        hostPort: 30900
         listenAddress: "127.0.0.1"
         protocol: TCP
