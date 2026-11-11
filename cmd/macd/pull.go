@@ -62,6 +62,52 @@ func canonicalRef(ref string) string {
 	return registry + "/" + parsed.Context().RepositoryStr() + separator + parsed.Identifier()
 }
 
+// anonymousFallback resolves credentials like the Docker CLI's keychain, but
+// falls back to anonymous access when a credential helper is missing or fails.
+// A pull of a public image then still works, and a private one fails with the
+// registry's own authorization error.
+type anonymousFallback struct{ keychain authn.Keychain }
+
+func (k anonymousFallback) Resolve(target authn.Resource) (authn.Authenticator, error) {
+	auth, err := k.keychain.Resolve(target)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "macd: no credentials for %s (%v); pulling anonymously\n", target.RegistryStr(), err)
+		return authn.Anonymous, nil
+	}
+	return auth, nil
+}
+
+// credentialHelperDirs are where Docker credential helpers are installed:
+// Docker Desktop's user and app directories, and Homebrew's prefixes. A
+// LaunchAgent starts with a minimal PATH that contains none of them.
+func credentialHelperDirs(home string) []string {
+	return []string{
+		filepath.Join(home, ".docker", "bin"),
+		"/Applications/Docker.app/Contents/Resources/bin",
+		"/opt/homebrew/bin",
+		"/usr/local/bin",
+	}
+}
+
+// withCredentialHelperPath returns path with any missing credential helper
+// directories appended.
+func withCredentialHelperPath(path, home string) string {
+	have := make(map[string]bool)
+	for _, dir := range filepath.SplitList(path) {
+		have[dir] = true
+	}
+	for _, dir := range credentialHelperDirs(home) {
+		if !have[dir] {
+			if path != "" {
+				path += string(os.PathListSeparator)
+			}
+			path += dir
+			have[dir] = true
+		}
+	}
+	return path
+}
+
 func registryAuth(header string) (authn.Authenticator, error) {
 	if header == "" {
 		return nil, nil
@@ -131,7 +177,7 @@ func (d *daemon) pull(w http.ResponseWriter, r *http.Request) {
 	if auth != nil {
 		opts = append(opts, remote.WithAuth(auth))
 	} else {
-		opts = append(opts, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+		opts = append(opts, remote.WithAuthFromKeychain(anonymousFallback{authn.DefaultKeychain}))
 	}
 	img, err := remote.Image(ref, opts...)
 	if err != nil {

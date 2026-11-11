@@ -116,6 +116,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: macd [-image local-oci.tar] [-tag name:tag] [-load tag=local-oci.tar]... [-runner path] [-socket path] [-store path]")
 		os.Exit(2)
 	}
+	// Let registry pulls find Docker's credential helpers even when macd runs
+	// as a LaunchAgent, whose PATH has only the system directories.
+	if home, err := os.UserHomeDir(); err == nil {
+		_ = os.Setenv("PATH", withCredentialHelperPath(os.Getenv("PATH"), home))
+	}
 	if *image != "" {
 		loads = append(startupImages{{tag: *tag, path: *image}}, loads...)
 	}
