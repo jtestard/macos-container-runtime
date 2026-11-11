@@ -74,7 +74,16 @@ type daemon struct {
 	images     map[string]*storedImage
 	store      string
 	runner     string
+	// closing is set once shutdown begins; no process may start after it.
+	closing bool
 }
+
+// How long stopAll waits after SIGTERM, and then after a forced stop, before
+// escalating. Variables so tests can shorten them.
+var (
+	stopGrace  = 10 * time.Second
+	forceGrace = 5 * time.Second
+)
 
 type startupImage struct {
 	tag  string
@@ -106,6 +115,11 @@ func main() {
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "usage: macd [-image local-oci.tar] [-tag name:tag] [-load tag=local-oci.tar]... [-runner path] [-socket path] [-store path]")
 		os.Exit(2)
+	}
+	// Let registry pulls find Docker's credential helpers even when macd runs
+	// as a LaunchAgent, whose PATH has only the system directories.
+	if home, err := os.UserHomeDir(); err == nil {
+		_ = os.Setenv("PATH", withCredentialHelperPath(os.Getenv("PATH"), home))
 	}
 	if *image != "" {
 		loads = append(startupImages{{tag: *tag, path: *image}}, loads...)
@@ -400,12 +414,18 @@ func (d *daemon) containerRequest(w http.ResponseWriter, r *http.Request, p stri
 
 func (d *daemon) start(w http.ResponseWriter, c *container) {
 	d.mu.Lock()
+	if d.closing {
+		d.mu.Unlock()
+		writeError(w, http.StatusServiceUnavailable, "macd is shutting down")
+		return
+	}
 	if c.status != "created" {
 		d.mu.Unlock()
 		writeError(w, http.StatusNotModified, "container is not in created state")
 		return
 	}
-	args := []string{"-image", c.img.path}
+	// The runner stops its workload if macd exits without stopping it first.
+	args := []string{"-image", c.img.path, "-parent-pid", strconv.Itoa(os.Getpid())}
 	for _, bind := range c.binds {
 		encoded, err := json.Marshal(bind)
 		if err != nil {
@@ -833,27 +853,65 @@ func (d *daemon) remove(w http.ResponseWriter, r *http.Request, c *container) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// stopAll stops every running container before macd exits. It first marks
+// the daemon as closing, under the same lock that start takes, so no process
+// can start after the snapshot below and be left running. Runners get SIGTERM,
+// then SIGUSR1 (a forced stop that still lets them clean up), and finally
+// SIGKILL.
 func (d *daemon) stopAll() {
-	type target struct {
-		process *os.Process
-		done    <-chan struct{}
-	}
 	d.mu.Lock()
-	targets := make([]target, 0)
+	d.closing = true
+	var runners []runnerProcess
 	for _, c := range d.containers {
 		if c.status == "running" && c.cmd != nil {
-			targets = append(targets, target{process: c.cmd.Process, done: c.done})
+			runners = append(runners, runnerProcess{process: c.cmd.Process, done: c.done})
 		}
 	}
 	d.mu.Unlock()
-	for _, t := range targets {
-		_ = t.process.Signal(syscall.SIGTERM)
+	signalRunners(runners, syscall.SIGTERM)
+	if runners = waitRunners(runners, stopGrace); len(runners) == 0 {
+		return
 	}
-	for _, t := range targets {
+	signalRunners(runners, syscall.SIGUSR1)
+	for _, r := range waitRunners(runners, forceGrace) {
+		fmt.Fprintf(os.Stderr, "macd: runner pid %d did not stop; killing it\n", r.process.Pid)
+		// Each runner leads its own process group.
+		_ = syscall.Kill(-r.process.Pid, syscall.SIGKILL)
+	}
+}
+
+type runnerProcess struct {
+	process *os.Process
+	done    <-chan struct{}
+}
+
+func signalRunners(runners []runnerProcess, sig syscall.Signal) {
+	for _, r := range runners {
+		_ = r.process.Signal(sig)
+	}
+}
+
+// waitRunners waits up to timeout in total and returns the runners that are
+// still running.
+func waitRunners(runners []runnerProcess, timeout time.Duration) []runnerProcess {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	var left []runnerProcess
+	expired := false
+	for _, r := range runners {
+		if !expired {
+			select {
+			case <-r.done:
+				continue
+			case <-deadline.C:
+				expired = true
+			}
+		}
 		select {
-		case <-t.done:
-		case <-time.After(10 * time.Second):
-			fmt.Fprintf(os.Stderr, "macd: runner pid %d did not stop within 10 seconds\n", t.process.Pid)
+		case <-r.done:
+		default:
+			left = append(left, r)
 		}
 	}
+	return left
 }

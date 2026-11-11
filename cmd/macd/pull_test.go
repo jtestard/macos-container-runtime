@@ -1,6 +1,12 @@
 package main
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+)
 
 func TestPullTag(t *testing.T) {
 	for _, tc := range []struct {
@@ -45,5 +51,33 @@ func TestImageForLockedMatchesShortNames(t *testing.T) {
 		if got := d.imageForLocked(tc.name); got != tc.want {
 			t.Errorf("imageForLocked(%q) = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestWithCredentialHelperPath(t *testing.T) {
+	got := withCredentialHelperPath("/usr/bin:/bin:/opt/homebrew/bin", "/Users/me")
+	want := "/usr/bin:/bin:/opt/homebrew/bin:/Users/me/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/local/bin"
+	if got != want {
+		t.Fatalf("withCredentialHelperPath = %q, want %q", got, want)
+	}
+	if again := withCredentialHelperPath(got, "/Users/me"); again != got {
+		t.Fatalf("second call changed PATH to %q", again)
+	}
+}
+
+type failingKeychain struct{}
+
+func (failingKeychain) Resolve(authn.Resource) (authn.Authenticator, error) {
+	return nil, errors.New(`exec: "docker-credential-desktop": executable file not found in $PATH`)
+}
+
+func TestAnonymousFallbackWhenCredentialHelperFails(t *testing.T) {
+	registry, err := name.NewRegistry("index.docker.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := anonymousFallback{failingKeychain{}}.Resolve(registry)
+	if err != nil || auth != authn.Anonymous {
+		t.Fatalf("Resolve = %v, %v; want anonymous", auth, err)
 	}
 }

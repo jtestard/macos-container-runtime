@@ -324,8 +324,9 @@ func (p *provider) refreshOne(ctx context.Context, k string) {
 		return
 	}
 	state, err := p.docker.inspect(ctx, managed.containerID)
-	if err != nil {
-		return
+	missing := dockerNotFound(err)
+	if err != nil && !missing {
+		return // macd unreachable or erroring; keep the last known status
 	}
 	p.mu.Lock()
 	if p.pods[k] != managed {
@@ -333,7 +334,14 @@ func (p *provider) refreshOne(ctx context.Context, k string) {
 		return
 	}
 	updated := managed.pod.DeepCopy()
-	updated.Status = statusFor(updated, state)
+	if missing {
+		// macd no longer knows the container, for example because it was
+		// restarted. Report the Pod as failed so its controller replaces it,
+		// instead of leaving it Running with no process behind it.
+		updated.Status = missingStatus(updated, managed.containerID)
+	} else {
+		updated.Status = statusFor(updated, state)
+	}
 	if !sameStatus(&managed.pod.Status, &updated.Status) {
 		managed.pod = updated
 		cb := p.notify
@@ -377,6 +385,23 @@ func statusFor(pod *corev1.Pod, state *dockerInspect) corev1.PodStatus {
 		cs.State = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: int32(state.State.ExitCode), Reason: reason, StartedAt: metav1.NewTime(state.State.StartedAt), FinishedAt: metav1.Now()}}
 	}
 	return status
+}
+
+// missingStatus is the status of a Pod whose macd container no longer exists.
+func missingStatus(pod *corev1.Pod, containerID string) corev1.PodStatus {
+	c := pod.Spec.Containers[0]
+	message := "macd no longer has container " + containerID + "; it may have been restarted"
+	return corev1.PodStatus{
+		Phase:   corev1.PodFailed,
+		Reason:  "ContainerMissing",
+		Message: message,
+		ContainerStatuses: []corev1.ContainerStatus{{
+			Name: c.Name, Image: c.Image, ContainerID: "macnative://" + containerID,
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				ExitCode: 137, Reason: "ContainerMissing", Message: message, FinishedAt: metav1.Now(),
+			}},
+		}},
+	}
 }
 
 func unsupported() error { return fmt.Errorf("macnative does not support this kubelet operation yet") }
