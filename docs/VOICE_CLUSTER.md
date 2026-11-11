@@ -20,7 +20,7 @@ The cluster and its `mackube` are created and removed together by
 - [x] Verify an image-built agent joins a LiveKit room and synthesizes its greeting through image-built Kokoro.
 - [x] Publish a spoken question through LiveKit and verify the agent reaches Whisper, the Metal LLM, and Kokoro.
 - [x] Replace the LLM Pod with the model-free llama-server image and a read-only hostPath GGUF; verify health, models, and chat responses on 8080.
-- [ ] Verify the voice agent against the model-free llama-server Pod with the host-mounted GGUF.
+- [x] Verify the voice agent against the model-free llama-server Pod with the host-mounted GGUF: a spoken question was transcribed and answered aloud by Mistral 7B.
 - [ ] Verify a spoken browser turn using a microphone.
 
 ## Components
@@ -38,15 +38,26 @@ Kind's port mapping is fixed when its node container is created. The
 `kind-cluster.yaml` file maps 7880/TCP for signaling, 7881/TCP and 7882/UDP
 for LiveKit media, and 8090/TCP for the web UI. `kubectl port-forward` cannot
 carry the UDP media stream. The web page advertises
-`ws://localhost:7880` to the browser. The native agent uses local host
-endpoints from the packaged `speech.env`; Kubernetes Service routing to native
+`ws://localhost:7880` to the browser. The native agent reaches the other
+native services on their local host ports; Kubernetes Service routing to native
 Pods is not implemented yet.
 
-## Build and start
+## Images
 
-Build the web UI and voice agent images using [VOICE_IMAGES.md](VOICE_IMAGES.md);
-the LLM, Whisper and Kokoro images are pulled from Docker Hub below. The LLM's
-model mount is described in [LLAMA_SERVER_IMAGE.md](LLAMA_SERVER_IMAGE.md).
+Nothing is built here. All five images are published on Docker Hub from the
+[macos-native-images](https://github.com/jtestard/macos-native-images)
+repository, which holds their build recipes and the voice app's source:
+
+| Image | Built from |
+| --- | --- |
+| `jtstormz/llama-server:ee0445c` | upstream llama.cpp; model mounted from the Mac, see [LLAMA_SERVER_IMAGE.md](LLAMA_SERVER_IMAGE.md) |
+| `jtstormz/whisper-server:v1.9.1-base.en` | upstream whisper.cpp with the English base model |
+| `jtstormz/kokoro:b4ef64b` | upstream Kokoro-FastAPI with the Kokoro-82M weights |
+| `jtstormz/voice-agent:0.1.0` | the demo agent in that repository's `voice/agent` |
+| `jtstormz/voice-web:0.1.0` (Linux) | the demo browser client in its `voice/web` |
+
+## Start
+
 Build `imgrun` and `macd`:
 
 ```sh
@@ -54,24 +65,26 @@ go build -o .build/imgrun ./cmd/imgrun
 go build -o .build/macd ./cmd/macd
 ```
 
-Start one `macd` for the voice stack on its own socket and image store, with
-the locally built agent image. Keep it running in a terminal or under a
-process supervisor:
+Start one `macd` for the voice stack on its own socket and image store. Keep
+it running in a terminal or under a process supervisor:
 
 ```sh
-.build/macd -load voice-agent:local=.build/voice-agent.tar \
-  -runner .build/imgrun -store .build/voice-images \
+.build/macd -runner .build/imgrun -store .build/voice-images \
   -socket /private/tmp/macnative-voice-docker.sock
 ```
 
-In another terminal, pull the three published service images into it:
+In another terminal, pull the four native images into it:
 
 ```sh
-for image in jtstormz/llama-server:ee0445c \
-    jtstormz/whisper-server:v1.9.1-base.en jtstormz/kokoro:b4ef64b; do
+for image in jtstormz/llama-server:ee0445c jtstormz/whisper-server:v1.9.1-base.en \
+    jtstormz/kokoro:b4ef64b jtstormz/voice-agent:0.1.0; do
   docker -H unix:///private/tmp/macnative-voice-docker.sock pull "$image"
 done
 ```
+
+Pulled images stay in `.build/voice-images` across `macd` restarts. Restarting
+this `macd` stops the native processes; delete the native Pods afterwards so
+Kubernetes recreates them on the new `macd`.
 
 Once the socket exists, create the dedicated cluster with its port mappings
 and join the Mac to it as the node `macnative`, served by this `macd`:
@@ -83,11 +96,10 @@ MACD_SOCKET=/private/tmp/macnative-voice-docker.sock \
 ```
 
 If another cluster's `mackube` already uses port 10250, also set
-`MACKUBE_PORT` to a free port. Then load the web image and deploy the Linux
-Pods:
+`MACKUBE_PORT` to a free port. Then deploy the Linux Pods; Kind pulls LiveKit
+and the web client from Docker Hub:
 
 ```sh
-DOCKER_CONTEXT=desktop-linux kind load docker-image macvoice-web:local --name livekit
 kubectl --context kind-livekit apply -k examples/voice-cluster/livekit
 kubectl --context kind-livekit apply -f examples/voice-cluster/web.yaml
 kubectl --context kind-livekit -n livekit rollout status deployment/livekit
@@ -104,7 +116,7 @@ in the Pod, and `mackube` rejects that relative path. If this already happened,
 the rendered `kubectl apply` command below updates the Deployment and replaces
 the rejected Pod. If you choose another GGUF, change the `-m` argument in the
 manifest to match its file name. The image defaults to port 8082, so the Pod
-adds `--port 8080` to keep the voice agent's packaged `LLM_BASE_URL` valid.
+adds `--port 8080`, where the voice agent expects the LLM.
 On the tested 16 GB Mac, loading this
 GGUF with the image's default mmap mode stalled in Metal residency. The Pod
 sets `--load-mode none` and offloads 16 layers to Metal; that configuration
@@ -132,20 +144,31 @@ kubectl --context kind-livekit apply -f examples/voice-cluster/agent.yaml
 kubectl --context kind-livekit -n livekit get pods -o wide
 ```
 
-Open `http://127.0.0.1:8090`. The web server mints a room token and points
-the browser at the local LiveKit signaling address. Test API and speech paths:
+Open `http://127.0.0.1:8090` and select **Start conversation**. The web server
+mints a room token, the agent joins and greets you, and both sides' words
+appear on the page as they are transcribed.
+
+To check the whole loop without a microphone, run the conversation test from a
+checkout of macos-native-images. It joins a room, speaks a WAV file, and waits
+for the agent's spoken reply:
 
 ```sh
-curl http://127.0.0.1:8090/config
-"$APP_SOURCE/scripts/test-speech.sh"
+cd /path/to/macos-native-images/voice/agent
+npm ci   # Node 22
+say -o /tmp/question.aiff "What is the capital of France?"
+afconvert -f WAVE -d LEI16@48000 -c 1 /tmp/question.aiff /tmp/question.wav
+node test-conversation.js /tmp/question.wav
 ```
 
-The speech script transcribes a known sample, synthesizes PCM, and feeds that
-audio back to Whisper. An automated LiveKit room test published Opus speech,
-which Whisper transcribed; the agent then generated and synthesized a reply.
-That earlier test used SmolLM2, which answered the arithmetic question
-incorrectly. It verified transport and service integration, not the new
-Mistral default or answer quality.
+The verified run printed:
+
+```text
+Agent: Hi! I am running entirely on this Mac. What would you like to talk about?
+You  : What is the capital of France?
+Agent: The capital of France is Paris.
+Conversation OK
+```
+
 A browser microphone test still needs a person.
 LiveKit logs use `kubectl logs deployment/livekit`. Native Pod logs also work
 through Kubernetes, including `--tail` and `-f`:
