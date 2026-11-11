@@ -6,10 +6,14 @@ processes through `macd` and Virtual Kubelet: the Metal LLM, Whisper STT,
 Kokoro TTS, and LiveKit voice agent. One `macd` holds the four native images,
 and one `mackube` registers the Mac as a single virtual node for all four Pods.
 
-The cluster and its `mackube` are created and removed together by
-`scripts/kube-up.sh livekit` and `scripts/kube-down.sh livekit`, described in
-[Kubernetes usage](KUBERNETES.md). Every command below names the
-`kind-livekit` kubectl context explicitly.
+For a short step-by-step setup, see the
+[voice assistant quickstart](VOICE_QUICKSTART.md); this page explains the parts.
+
+The native Pods run on the same `macd` as the rest of the runtime, the
+LaunchAgent from the [installation guide](../README.md). The cluster and its
+`mackube` are created and removed together by `scripts/kube-up.sh livekit` and
+`scripts/kube-down.sh livekit`, described in [Kubernetes usage](KUBERNETES.md).
+Every command below names the `kind-livekit` kubectl context explicitly.
 
 ## Progress
 
@@ -61,41 +65,26 @@ repository, which holds their build recipes and the voice app's source:
 
 ## Start
 
-Build `imgrun` and `macd`:
-
-```sh
-go build -o .build/imgrun ./cmd/imgrun
-go build -o .build/macd ./cmd/macd
-```
-
-Start one `macd` for the voice stack on its own socket and image store. Keep
-it running in a terminal or under a process supervisor:
-
-```sh
-.build/macd -runner .build/imgrun -store .build/voice-images \
-  -socket /private/tmp/macnative-voice-docker.sock
-```
-
-In another terminal, pull the four native images into it:
+Install the runtime and start `macd` as described in the
+[main README](../README.md#install-the-runtime), then pull the four native
+images into it:
 
 ```sh
 for image in jtstormz/llama-server:ee0445c-2 jtstormz/whisper-server:v1.9.1-base.en-2 \
     jtstormz/kokoro:b4ef64b-2 jtstormz/voice-agent:0.1.2; do
-  docker -H unix:///private/tmp/macnative-voice-docker.sock pull "$image"
+  docker --context macnative pull "$image"
 done
 ```
 
-Pulled images stay in `.build/voice-images` across `macd` restarts. Restarting
-this `macd` stops the native processes; delete the native Pods afterwards so
-Kubernetes recreates them on the new `macd`.
+Pulled images stay in `macd`'s image store across restarts. Restarting `macd`
+stops the native processes; `mackube` then marks their Pods failed and
+Kubernetes recreates them.
 
-Once the socket exists, create the dedicated cluster with its port mappings
-and join the Mac to it as the node `macnative`, served by this `macd`:
+Create the dedicated cluster with its port mappings and join the Mac to it as
+the node `macnative`:
 
 ```sh
-KIND_CONFIG=examples/voice-cluster/livekit/kind-cluster.yaml \
-MACD_SOCKET=/private/tmp/macnative-voice-docker.sock \
-  ./scripts/kube-up.sh livekit
+KIND_CONFIG=examples/voice-cluster/livekit/kind-cluster.yaml ./scripts/kube-up.sh livekit
 ```
 
 If another cluster's `mackube` already uses port 20250, also set
