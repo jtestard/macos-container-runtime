@@ -79,7 +79,7 @@ The Kubernetes adapter in `kube/cmd/mackube` passes container `args` and one
 read-only `hostPath` directory mount to `macd`. The
 [standalone llama example](KUBERNETES.md) uses this image and mounts SmolLM2
 from the Mac. The
-[voice cluster LLM Deployment](../examples/voice-cluster/go-inf-server.yaml)
+[voice cluster LLM Deployment](../examples/voice-cluster/llama-server.yaml)
 defaults to Mistral 7B Instruct and adds `--port 8080` so the existing voice
 agent can keep its `LLM_BASE_URL`.
 Pull the image into `macd` before creating the Pod; the adapter does not pull

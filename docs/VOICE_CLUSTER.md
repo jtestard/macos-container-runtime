@@ -29,7 +29,7 @@ The cluster and its `mackube` are created and removed together by
 | --- | --- | --- |
 | LiveKit SFU | Linux Pod in Kind | 7880/TCP, 7881/TCP, 7882/UDP |
 | Web UI | Linux Pod in Kind | 8090/TCP |
-| `llama-server` LLM (`go-inf-server` Deployment) | native `macnative` Pod | 8080/TCP |
+| `llama-server` LLM | native `macnative` Pod | 8080/TCP |
 | Whisper STT | native `macnative` Pod | 8000/TCP |
 | Kokoro TTS | native `macnative` Pod | 8880/TCP |
 | Voice agent | native `macnative` Pod | 8083/TCP |
@@ -115,7 +115,7 @@ the agent:
 APP_SOURCE="/path/to/go-inf-server"
 MODEL_DIR="$APP_SOURCE/models/mistral-7b"
 test -f "$MODEL_DIR/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
-sed "s|__MODEL_DIR__|$MODEL_DIR|g" examples/voice-cluster/go-inf-server.yaml \
+sed "s|__MODEL_DIR__|$MODEL_DIR|g" examples/voice-cluster/llama-server.yaml \
   | kubectl --context kind-livekit apply -f -
 kubectl --context kind-livekit apply \
   -f examples/voice-cluster/whisper.yaml \
@@ -145,7 +145,7 @@ LiveKit logs use `kubectl logs deployment/livekit`. Native Pod logs also work
 through Kubernetes, including `--tail` and `-f`:
 
 ```sh
-kubectl --context kind-livekit -n livekit logs deployment/go-inf-server --tail=20
+kubectl --context kind-livekit -n livekit logs deployment/llama-server --tail=20
 stern --context kind-livekit -n livekit kokoro
 ```
 
@@ -171,9 +171,9 @@ kubectl --context kind-livekit delete \
   -f examples/voice-cluster/agent.yaml \
   -f examples/voice-cluster/kokoro.yaml \
   -f examples/voice-cluster/whisper.yaml
-kubectl --context kind-livekit -n livekit delete deployment go-inf-server
+kubectl --context kind-livekit -n livekit delete deployment llama-server
 kubectl --context kind-livekit -n livekit wait --for=delete pod \
-  -l 'app in (go-inf-server,whisper-stt,kokoro-tts,voice-agent)' --timeout=120s
+  -l 'app in (llama-server,whisper-stt,kokoro-tts,voice-agent)' --timeout=120s
 kubectl --context kind-livekit delete -f examples/voice-cluster/web.yaml
 kubectl --context kind-livekit delete -k examples/voice-cluster/livekit
 ```
