@@ -12,17 +12,17 @@
 # cannot traverse, and there is no NAT between a browser and a port on its
 # own loopback interface.
 
-port: 20880
+port: 30880
 
 rtc:
-  tcp_port: 20881
+  tcp_port: 30881
 
   # UDP mux: every peer's media multiplexes onto this single port, instead
   # of port_range_start/end (default 50000-60000). A 10k-port range is
   # unworkable here — kind would need 10k extraPortMappings. The two are
   # mutually exclusive and the RANGE WINS if both are set, so port_range_*
   # must be ABSENT, not set to zero.
-  udp_port: 20882
+  udp_port: 30882
 
   # Upstream defaults this to true, which STUNs the public WAN address into
   # every ICE candidate, and refuses to boot with no internet.
@@ -35,7 +35,7 @@ rtc:
   #
   # 127.0.0.1 is correct here because of k8s/kind-cluster.yaml, not by
   # default. The browser sends media to the hostPort on the macOS loopback
-  # and kind forwards it to the NodePort, so 127.0.0.1:20882 is genuinely
+  # and kind forwards it to the NodePort, so 127.0.0.1:30882 is genuinely
   # where the media lands. Under Kubernetes this value tracks the cluster's
   # port mappings, not anything about the pod — the pod sees 10.244.x and
   # that address must never appear in a candidate.

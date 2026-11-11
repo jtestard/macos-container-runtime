@@ -18,7 +18,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: web
-          image: jtstormz/voice-web:0.1.1
+          image: jtstormz/voice-web:0.1.2
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

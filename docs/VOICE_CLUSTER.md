@@ -27,18 +27,21 @@ The cluster and its `mackube` are created and removed together by
 
 | Service | Placement | Host endpoint |
 | --- | --- | --- |
-| LiveKit SFU | Linux Pod in Kind | 20880/TCP, 20881/TCP, 20882/UDP |
-| Web UI | Linux Pod in Kind | 20090/TCP |
+| LiveKit SFU | Linux Pod in Kind | 30880/TCP, 30881/TCP, 30882/UDP |
+| Web UI | Linux Pod in Kind | 30900/TCP |
 | `llama-server` LLM | native `macnative` Pod | 20082/TCP |
 | Whisper STT | native `macnative` Pod | 20084/TCP |
 | Kokoro TTS | native `macnative` Pod | 20085/TCP |
 | Voice agent | native `macnative` Pod | 20083/TCP |
 
 Kind's port mapping is fixed when its node container is created. The
-`kind-cluster.yaml` file maps 20880/TCP for signaling, 20881/TCP and 20882/UDP
-for LiveKit media, and 20090/TCP for the web UI. `kubectl port-forward` cannot
+`kind-cluster.yaml` file publishes the Services' NodePorts on the Mac under the
+same numbers: 30880/TCP for signaling, 30881/TCP and 30882/UDP
+for LiveKit media, and 30900/TCP for the web UI. Docker Desktop cannot route
+from the Mac to the Kind node's container IP, so only these published ports
+are reachable. `kubectl port-forward` cannot
 carry the UDP media stream. The web page advertises
-`ws://localhost:20880` to the browser. The native agent reaches the other
+`ws://localhost:30880` to the browser. The native agent reaches the other
 native services on their local host ports; Kubernetes Service routing to native
 Pods is not implemented yet.
 
@@ -53,8 +56,8 @@ repository, which holds their build recipes and the voice app's source:
 | `jtstormz/llama-server:ee0445c-2` | upstream llama.cpp; model mounted from the Mac, see [LLAMA_SERVER_IMAGE.md](LLAMA_SERVER_IMAGE.md) |
 | `jtstormz/whisper-server:v1.9.1-base.en-2` | upstream whisper.cpp with the English base model |
 | `jtstormz/kokoro:b4ef64b-2` | upstream Kokoro-FastAPI with the Kokoro-82M weights |
-| `jtstormz/voice-agent:0.1.1` | the demo agent in that repository's `voice/agent` |
-| `jtstormz/voice-web:0.1.1` (Linux) | the demo browser client in its `voice/web` |
+| `jtstormz/voice-agent:0.1.2` | the demo agent in that repository's `voice/agent` |
+| `jtstormz/voice-web:0.1.2` (Linux) | the demo browser client in its `voice/web` |
 
 ## Start
 
@@ -77,7 +80,7 @@ In another terminal, pull the four native images into it:
 
 ```sh
 for image in jtstormz/llama-server:ee0445c-2 jtstormz/whisper-server:v1.9.1-base.en-2 \
-    jtstormz/kokoro:b4ef64b-2 jtstormz/voice-agent:0.1.1; do
+    jtstormz/kokoro:b4ef64b-2 jtstormz/voice-agent:0.1.2; do
   docker -H unix:///private/tmp/macnative-voice-docker.sock pull "$image"
 done
 ```
@@ -144,7 +147,7 @@ kubectl --context kind-livekit apply -f examples/voice-cluster/agent.yaml
 kubectl --context kind-livekit -n livekit get pods -o wide
 ```
 
-Open `http://127.0.0.1:20090` and select **Start conversation**. The web server
+Open `http://127.0.0.1:30900` and select **Start conversation**. The web server
 mints a room token, the agent joins and greets you, and both sides' words
 appear on the page as they are transcribed.
 
