@@ -152,10 +152,8 @@ the image. The worker and runner use
 macOS Seatbelt to limit ordinary file writes, while host reads and network
 access remain available.
 
-For lower-level image packaging and registry work, see the
-[image packager guide](docs/IMAGE_PACKAGER.md). The
-[OCI runner guide](docs/RUNNER.md) explains how to run a local tarball without
-the Docker API service.
+The [OCI runner guide](docs/RUNNER.md) explains how to run a local tarball
+without the Docker API service.
 
 ## Examples
 
@@ -188,5 +186,5 @@ docker rm -f tiny-web
 ```
 
 The server defaults to port 8080 when `--port` is omitted. The
-[Metal server example](examples/go-inf-server/README.md) has the full build
-and run workflow for the cgo application and model image.
+[llama-server build plan](docs/LLAMA_SERVER_BUILDPLAN.md) builds the Metal
+llama.cpp server image from upstream source.

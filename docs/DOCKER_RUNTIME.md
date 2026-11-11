@@ -4,8 +4,8 @@
 pulls `darwin/arm64` images from a registry into a persistent store and uses
 [`imgrun`](RUNNER.md) to execute it. The installed, unmodified Docker CLI can
 then issue `docker --context macnative run` on this Mac. Both the tiny web
-server and [Metal-backed `go-inf-server`](../examples/go-inf-server/README.md)
-have been run through this path.
+server and the Metal-backed [llama.cpp server](LLAMA_SERVER_IMAGE.md) run
+through this path.
 
 ## Start the service
 
