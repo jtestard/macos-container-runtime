@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 type descriptor struct {
@@ -72,12 +73,25 @@ func (s *stringFlags) Set(value string) error {
 	return nil
 }
 
+// parentPID, when set, is the daemon that started this runner. If it exits
+// without stopping us, for example because it was killed or crashed, the
+// runner stops its workload instead of leaving it running unmanaged.
+var parentPID int
+
+// How often the runner checks its parent, and how long a workload gets to
+// exit after SIGTERM before it is killed.
+var (
+	parentCheckInterval = 500 * time.Millisecond
+	stopGrace           = 5 * time.Second
+)
+
 func main() {
 	image := flag.String("image", "", "Buildx OCI tarball to run")
 	inspect := flag.Bool("inspect", false, "print validated image config as JSON without running")
 	var binds, command stringFlags
 	flag.Var(&binds, "bind", "read-only bind as JSON with source and target; repeatable")
 	flag.Var(&command, "cmd", "command argument after image entrypoint; repeatable")
+	flag.IntVar(&parentPID, "parent-pid", 0, "stop the workload if this parent process exits (set by macd)")
 	flag.Parse()
 	if *image == "" || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "usage: imgrun -image <buildx-oci.tar> [-bind JSON]... [-cmd ARG]...")
@@ -507,10 +521,24 @@ func launch(state, root string, cfg imageConfig, command []string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "imgrun: started pid %d from %s\n", cmd.Process.Pid, workdir)
-	signals := make(chan os.Signal, 1)
+	signals := make(chan os.Signal, 4)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGUSR1)
 	done := make(chan struct{})
-	go func() {
+	group := -cmd.Process.Pid
+	go forwardSignals(signals, group, done)
+	if parentPID > 0 {
+		go stopWhenParentExits(parentPID, group, done)
+	}
+	err = cmd.Wait()
+	close(done)
+	signal.Stop(signals)
+	return err
+}
+
+// forwardSignals passes every signal the runner receives to the workload's
+// process group, so a daemon can escalate from SIGTERM to a forced stop.
+func forwardSignals(signals <-chan os.Signal, group int, done <-chan struct{}) {
+	for {
 		select {
 		case sig := <-signals:
 			if unixSig, ok := sig.(syscall.Signal); ok {
@@ -520,13 +548,31 @@ func launch(state, root string, cfg imageConfig, command []string) error {
 				if unixSig == syscall.SIGUSR1 {
 					unixSig = syscall.SIGKILL
 				}
-				_ = syscall.Kill(-cmd.Process.Pid, unixSig)
+				_ = syscall.Kill(group, unixSig)
 			}
 		case <-done:
+			return
 		}
-	}()
-	err = cmd.Wait()
-	close(done)
-	signal.Stop(signals)
-	return err
+	}
+}
+
+// stopWhenParentExits stops the workload once the parent process is gone:
+// the runner is then reparented, so its parent ID no longer matches.
+func stopWhenParentExits(parent, group int, done <-chan struct{}) {
+	ticker := time.NewTicker(parentCheckInterval)
+	defer ticker.Stop()
+	for os.Getppid() == parent {
+		select {
+		case <-ticker.C:
+		case <-done:
+			return
+		}
+	}
+	fmt.Fprintf(os.Stderr, "imgrun: parent process %d exited; stopping the workload\n", parent)
+	_ = syscall.Kill(group, syscall.SIGTERM)
+	select {
+	case <-time.After(stopGrace):
+		_ = syscall.Kill(group, syscall.SIGKILL)
+	case <-done:
+	}
 }
