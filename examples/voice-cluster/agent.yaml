@@ -27,7 +27,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: agent
-          image: voice-agent:local
+          image: jtstormz/voice-agent:0.1.0
           imagePullPolicy: Never
           ports:
             - containerPort: 8083

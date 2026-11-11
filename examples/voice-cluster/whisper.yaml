@@ -27,7 +27,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: whisper
-          image: whisper-base-en:local
+          image: jtstormz/whisper-server:v1.9.1-base.en
           imagePullPolicy: Never
           ports:
             - containerPort: 8000

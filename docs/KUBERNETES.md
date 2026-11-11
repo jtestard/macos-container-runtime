@@ -1,107 +1,129 @@
 # Kubernetes usage
 
-`mackube` registers a macOS virtual node with an existing Kubernetes cluster.
-The example below runs one llama server on that node. The process runs on the
-Mac, with access to Metal and a model directory on the Mac. It does not need
-the voice stack or a BuildKit build.
+`mackube` joins this Mac to a Kubernetes cluster as a virtual node. Pods
+scheduled on that node run as native macOS processes through `macd`, with
+access to Metal and to directories on the Mac. The example below runs one
+llama server this way. It does not need the voice stack or a BuildKit build.
 
-Any Kubernetes distribution can provide the control plane, provided this Mac
-can reach its API server, the control plane can reach the Mac's virtual kubelet
-HTTPS endpoint, and the selected credentials can manage nodes and Pods. Kind
-is one tested option. Run these commands from the repository root.
+The cluster is a local [Kind](https://kind.sigs.k8s.io/) cluster in Docker
+Desktop, and `mackube` lives exactly as long as that cluster: two scripts
+create and remove them together. Run the commands from the repository root.
+
 You need a running `macd` (see the [installation guide](../README.md)),
-`docker`, `kubectl`, and Go 1.26 or later.
+Docker Desktop, `kind`, `kubectl`, and Go 1.26 or later.
 
-To create a local Kind cluster, run it against Docker Desktop, not `macd`.
-Kind uses the current Docker context, and the README makes `macnative` the
-default; under that context `kind get clusters` silently lists nothing and
-`kind create cluster` fails because `macd` cannot run Linux images:
+## Start and stop the cluster
 
 ```sh
-DOCKER_CONTEXT=desktop-linux kind create cluster --name macnative
+./scripts/kube-up.sh      # create cluster "macnative" and its Mac node
+./scripts/kube-down.sh    # remove both
 ```
 
-This also selects the new `kind-macnative` kubectl context, which step 2
-saves. Remove it later with
-`DOCKER_CONTEXT=desktop-linux kind delete cluster --name macnative`.
+`kube-up.sh` creates the Kind cluster in Docker Desktop (whatever your current
+Docker context is), saves its kubeconfig, builds `mackube`, starts it in the
+background, and waits until the Mac node `macnative` is `Ready`. It also
+selects the `kind-macnative` kubectl context.
+
+`kube-down.sh` stops the native Pods on the Mac node, stops `mackube`, deletes
+the Kind cluster, and deletes the cluster's local files. No node, process,
+or kubectl context is left behind.
+
+| Situation | What happens |
+| --- | --- |
+| `mackube` crashes | launchd restarts it; running Pods keep running and are adopted. |
+| You run `kube-up.sh` again | Safe. It restarts `mackube`, which adopts running Pods instead of starting them twice. |
+| You log out or reboot | Nothing starts by itself. Run `kube-up.sh` again; it reuses the existing cluster. |
+| `macd` restarts | Native processes stop; `kube-up.sh` is not needed, `mackube` reconnects. |
+
+To check on it:
+
+```sh
+kubectl --context kind-macnative get node macnative
+pgrep -lx mackube
+tail "$HOME/Library/Application Support/macnative/kube/macnative/mackube.log"
+```
+
+The cluster's kubeconfig, `mackube` launchd job, and log live in
+`~/Library/Application Support/macnative/kube/<cluster>/`. The launchd job is
+named `dev.macnative.mackube.<cluster>`; its plist stays in that directory,
+not in `~/Library/LaunchAgents`, which is why it never starts at login.
 
 ## Run the llama server
 
-1. Pull the published `darwin/arm64` image into `macd`:
+1. Pull the published `darwin/arm64` image into `macd` and start the cluster:
 
    ```sh
-   docker context use macnative
-   docker pull jtstormz/tiny-web:llama-server-001
+   docker --context macnative pull jtstormz/llama-server:ee0445c
+   ./scripts/kube-up.sh
    ```
 
-2. Save your **current** Kubernetes context as a private, single-context
-   kubeconfig and build the adapter:
-
-   ```sh
-   mkdir -p .build
-   umask 077
-   kubectl config current-context
-   kubectl config view --minify --flatten --raw > .build/macnative-kubeconfig
-   go -C kube build -o ../.build/mackube ./cmd/mackube
-   ```
-
-   Confirm the displayed context is the cluster you intend to use. The adapter
-   uses only the saved file, so switching your regular Kubernetes context later
-   will not change its target cluster.
-
-3. Start one virtual node in a separate terminal:
-
-   ```sh
-   .build/mackube -kubeconfig .build/macnative-kubeconfig \
-     -node-name macnative-llama -slot llama \
-     -socket /private/tmp/macnative-docker.sock \
-     -kubelet-address host.docker.internal -kubelet-port 10250
-   ```
-
-   For Kind on Docker Desktop, `host.docker.internal` resolves inside the
-   control-plane container to the Mac. Use a different reachable address for
-   other clusters and a distinct port for each virtual node. `mackube` serves
-   HTTPS on that port and requires a client certificate signed by the cluster
-   CA in the saved kubeconfig.
-
-4. In the original terminal, set `MODEL_DIR` to the **absolute path of the
-   directory** containing `SmolLM2-360M-Instruct-Q8_0.gguf` on this Mac. The
-   file name in the manifest must match exactly. Render the placeholder and
-   create the Deployment:
+2. Set `MODEL_DIR` to the **absolute path of the directory** containing
+   `SmolLM2-360M-Instruct-Q8_0.gguf` on this Mac. The file name in the manifest
+   must match exactly. Render the placeholder and create the Deployment:
 
    ```sh
    MODEL_DIR="/absolute/path/to/model-directory"
    test -f "$MODEL_DIR/SmolLM2-360M-Instruct-Q8_0.gguf"
    sed "s|__MODEL_DIR__|$MODEL_DIR|g" examples/kubernetes/llama-server.yaml \
-     | kubectl --kubeconfig .build/macnative-kubeconfig apply -f -
-   kubectl --kubeconfig .build/macnative-kubeconfig get pods \
-     -n default -l app=macnative-llama -o wide
+     | kubectl --context kind-macnative apply -f -
+   kubectl --context kind-macnative get pods -l app=macnative-llama -o wide
    ```
 
    The template uses `__MODEL_DIR__` so no personal model path is stored in
-   the repository. Set `MODEL_DIR` to your real directory before applying it.
-   The image expects the model at `/app/models` and listens on host port 8082.
+   the repository. The image expects the model at `/app/models` and listens on
+   host port 8082, which must be free.
 
-5. Check the server and remove the example when finished:
+3. Check the server:
 
    ```sh
    curl http://127.0.0.1:8082/health
-   kubectl --kubeconfig .build/macnative-kubeconfig logs -n default deployment/macnative-llama --tail=20
-   docker ps
-   kubectl --kubeconfig .build/macnative-kubeconfig delete deployment macnative-llama -n default
+   kubectl --context kind-macnative logs deployment/macnative-llama --tail=20
+   docker --context macnative ps
    ```
 
-   Stop `mackube` with Ctrl-C after deleting the Deployment. The node will
-   eventually become NotReady without the adapter's heartbeats.
+4. Remove the example, or the whole cluster:
+
+   ```sh
+   kubectl --context kind-macnative delete deployment macnative-llama
+   ./scripts/kube-down.sh
+   ```
+
+   Deleting the Deployment stops the native process. `kube-down.sh` alone is
+   also enough: it stops any native Pods before deleting the cluster.
+
+## Options
+
+`kube-up.sh` and `kube-down.sh` take an optional cluster name (default
+`macnative`), so several clusters can coexist. `kube-up.sh` also reads these
+environment variables:
+
+| Variable | Default | Use |
+| --- | --- | --- |
+| `KIND_CONFIG` | none | Kind cluster config file, for port mappings and similar. |
+| `MACKUBE_NODE` | `macnative` | Name of the Mac node. |
+| `MACKUBE_SLOT` | none | Adds a `macnative.dev/slot` node label for Pod placement. |
+| `MACKUBE_PORT` | `10250` | Virtual kubelet HTTPS port; each running cluster needs its own. |
+| `MACD_SOCKET` | `/private/tmp/macnative-docker.sock` | The `macd` instance that runs this cluster's Pods. |
+| `KIND_DOCKER_CONTEXT` | `desktop-linux` | Docker context that runs Kind. |
+
+The scripts always run Kind against Docker Desktop. If you made `macnative`
+your default Docker context, running `kind` by hand does not work: Kind follows
+the current context, so `kind get clusters` silently lists nothing and
+`kind create cluster` fails because `macd` cannot run Linux images. Prefix
+such commands with `DOCKER_CONTEXT=desktop-linux`.
+
+`mackube` itself can join any cluster whose API server the Mac can reach and
+which can reach the Mac's virtual kubelet port; run
+`$HOME/Library/Application\ Support/macnative/bin/mackube -h` for its flags.
+The scripts cover only Kind.
 
 ## Current limits
 
 The image must already be present in `macd`; `mackube` does not pull it. The
 adapter supports up to four Pods with one container each. The example uses a
 single replica, `Recreate`, a node selector, and a matching toleration to place
-the Pod on the `macnative-llama` node. Port 8082 must be free on the Mac. The
-Pod uses host networking, so it has no separate Pod IP and a selector-based
-Kubernetes Service cannot route to it.
+the Pod on the Mac node. The Pod uses host networking, so it has no separate
+Pod IP and a selector-based Kubernetes Service cannot route to it.
 
 The Pod has the image's default entrypoint, no environment overrides, and
 one read-only `hostPath` directory mounted at an image path that does not
@@ -113,8 +135,8 @@ options are not yet supported. Log history is held in memory, up to 1 MiB per
 container; tail and since selection use that retained history.
 
 Kubernetes `Ready` currently means the process is alive; the model can still
-be loading. Check `/health` before sending inference requests. Both `macd`
-and `mackube` keep state in memory. Restarting `macd` stops native processes;
-the adapter can adopt a still-running Pod after it restarts.
+be loading. Check `/health` before sending inference requests. A deleted
+native Pod can stay listed with status `Deleted` after its process has
+stopped. Both `macd` and `mackube` keep state in memory.
 
 For the larger LiveKit setup, see the [voice cluster guide](VOICE_CLUSTER.md).

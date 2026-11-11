@@ -22,7 +22,7 @@ its llama.cpp dylibs, configuration, and SmolLM2 model.
 | 2. Stage a compatible Go toolchain | Done | Downloaded Go 1.26 and supplied a writable copy as a named Buildx context. |
 | 3. Write the Dockerfile | Done | Selects server sources, headers, dylibs, config, and one model from the checkout; compiles with cgo in `RUN`; final stage copies only runtime payload. |
 | 4. Build and inspect OCI output | Done | Buildx exported a 361 MB OCI tar; config declares `darwin/arm64`; extracted entrypoint is arm64 Mach-O; final root has only `/app` payload, with no toolchain. |
-| 5. Run and document | Done | Direct runner and `docker --context macnative run -d` loaded SmolLM2 on M2 Pro Metal, offloaded 33/33 layers, served HTTP 200 from `/healthz`, and returned `pong` from chat. See [the example guide](../examples/go-inf-server/README.md). |
+| 5. Run and document | Done | Direct runner and `docker --context macnative run -d` loaded SmolLM2 on M2 Pro Metal, offloaded 33/33 layers, served HTTP 200 from `/healthz`, and returned `pong` from chat. (The `go-inf-server` example has since been removed.) |
 
 ## Completed task: first CPU worker probe
 

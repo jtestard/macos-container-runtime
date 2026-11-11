@@ -18,8 +18,8 @@ spec:
       enableServiceLinks: false
       containers:
         - name: web
-          image: macvoice-web:local
-          imagePullPolicy: Never
+          image: jtstormz/voice-web:0.1.0
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8090

@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 # Template: render __MODEL_DIR__ as an absolute Mac path before applying.
 metadata:
-  name: go-inf-server
+  name: llama-server
   namespace: livekit
 spec:
   replicas: 1
@@ -10,11 +10,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app: go-inf-server
+      app: llama-server
   template:
     metadata:
       labels:
-        app: go-inf-server
+        app: llama-server
     spec:
       nodeSelector:
         macnative.dev/runtime: darwin-arm64
@@ -27,8 +27,8 @@ spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
       containers:
-        - name: server
-          image: jtstormz/tiny-web:llama-server-001
+        - name: llama-server
+          image: jtstormz/llama-server:ee0445c
           imagePullPolicy: Never
           args:
             - -m

@@ -24,15 +24,20 @@ git clone https://github.com/jtestard/macos-container-runtime.git
 cd macos-container-runtime
 ./install.sh
 ./scripts/enable-macd.sh
-docker context use macnative
 ```
 
 `install.sh` builds and installs `macd` and `imgrun` in your user Application
 Support directory, prepares an image store, and creates the `macnative` Docker
-context. `docker context use macnative` selects it for subsequent Docker
-commands and persists across shells. The separate startup script loads a user
-LaunchAgent, so `macd` starts at login and restarts if it exits. Docker Desktop
-does not need to be running.
+context. It does not change your current context, so Docker Desktop stays your
+default. The separate startup script loads a user LaunchAgent, so `macd` starts
+at login and restarts if it exits. Docker Desktop does not need to be running.
+
+The examples below start with `docker context use macnative`, so plain
+`docker` commands reach the native runtime, and end with
+`docker context use desktop-linux` to return to Docker Desktop. The context
+setting persists across shells until you switch back, so while `macnative` is
+selected, tools such as `kind` also talk to the native runtime. To target it
+for a single command instead, use `docker --context macnative ...`.
 
 Run `./scripts/disable-macd.sh` to stop and remove the LaunchAgent. See the
 [runtime guide](docs/DOCKER_RUNTIME.md) for manual startup and configuration.
@@ -43,11 +48,13 @@ Pull the small `darwin/arm64` Go server from Docker Hub and run it with the
 regular Docker CLI:
 
 ```sh
+docker context use macnative
 docker pull jtstormz/tiny-web:dev-002
 docker run -d --name tiny-web jtstormz/tiny-web:dev-002 --port 8081
 curl http://127.0.0.1:8081/healthz
 docker logs tiny-web
 docker rm -f tiny-web
+docker context use desktop-linux
 ```
 
 The server listens directly on the Mac. `--port` selects an available port;
@@ -59,28 +66,33 @@ without it, the server uses 8080. Its source is in
 This model-free llama.cpp image runs natively on macOS and uses Metal. Keep the
 GGUF in a directory on the Mac and mount it read-only into the image. See the
 [image composition note](docs/LLAMA_SERVER_IMAGE.md) for its build inputs and
-volume contract. Replace the `MODEL_DIR` value below with the absolute path to
-the directory containing your GGUF file.
+volume contract. The commands below download the small SmolLM2 model (about
+390 MB) from Hugging Face into `~/models/smollm2-360m`; to use a GGUF you
+already have, set `MODEL_DIR` to its directory and change the `-m` file name.
 
 ```sh
-docker pull jtstormz/tiny-web:llama-server-001
-MODEL_DIR="/path/to/model-directory"
+MODEL_DIR="$HOME/models/smollm2-360m"
+mkdir -p "$MODEL_DIR"
+curl -fL -o "$MODEL_DIR/SmolLM2-360M-Instruct-Q8_0.gguf" \
+  https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q8_0.gguf
+docker context use macnative
+docker pull jtstormz/llama-server:ee0445c
 docker run -d --name llama-server \
   -v "$MODEL_DIR:/app/models:ro" \
-  jtstormz/tiny-web:llama-server-001 \
+  jtstormz/llama-server:ee0445c \
   -m models/SmolLM2-360M-Instruct-Q8_0.gguf
 docker logs llama-server
 curl http://127.0.0.1:8082/health
 docker rm -f llama-server
+docker context use desktop-linux
 ```
 
 The server may return HTTP 503 from `/health` while loading the model. It
 listens on the Mac's port 8082, which must be free.
 
-Both examples use the Mac's network directly; `-p` is not supported. Docker
-commands now use `macnative` until you select another context. Run
-`docker context use desktop-linux` to return to Docker Desktop. Pulled images
-remain available after `macd` restarts.
+Both examples use the Mac's network directly; `-p` is not supported. Pulled
+images remain available after `macd` restarts. Native containers appear only
+while the `macnative` context is selected, not in Docker Desktop's `docker ps`.
 
 The [runtime guide](docs/DOCKER_RUNTIME.md) lists the supported Docker
 commands and current limitations.
@@ -128,9 +140,16 @@ Dockerfile limits. The build does not load the image into Docker Desktop.
 
 ## Kubernetes
 
-See the separate [Kubernetes usage guide](docs/KUBERNETES.md) for running a
-single llama server on a native virtual node. Kind is one tested control plane,
-but the adapter can connect to any cluster through a dedicated kubeconfig. The
+Two scripts create a local Kind cluster with this Mac as a native node, and
+remove both again:
+
+```sh
+./scripts/kube-up.sh
+./scripts/kube-down.sh
+```
+
+The [Kubernetes usage guide](docs/KUBERNETES.md) explains them and runs a
+llama server on the Mac node. The
 [voice cluster guide](docs/VOICE_CLUSTER.md) covers the larger LiveKit setup.
 
 ## Current limits
@@ -138,17 +157,15 @@ but the adapter can connect to any cluster through a dedicated kubeconfig. The
 `macd` keeps container records in memory and pulled images on disk.
 The Docker API supports a narrow set of commands including `run`, `ps`,
 `logs`, `stop`, and `rm`. Read-only `-v` binds and command arguments are
-supported; see the [model-free llama-server example](docs/LLAMA_SERVER_BUILDPLAN.md).
+supported; see the [llama-server image](docs/LLAMA_SERVER_IMAGE.md).
 `docker pull` accepts `darwin/arm64` images. There is no `docker load` or port mapping yet. The
 builder's shell still resolves absolute paths on the host rather than inside
 the image. The worker and runner use
 macOS Seatbelt to limit ordinary file writes, while host reads and network
 access remain available.
 
-For lower-level image packaging and registry work, see the
-[image packager guide](docs/IMAGE_PACKAGER.md). The
-[OCI runner guide](docs/RUNNER.md) explains how to run a local tarball without
-the Docker API service.
+The [OCI runner guide](docs/RUNNER.md) explains how to run a local tarball
+without the Docker API service.
 
 ## Examples
 
@@ -175,11 +192,14 @@ usual socket:
 In another terminal, choose an available port:
 
 ```sh
+docker context use macnative
 docker run -d --name tiny-web tiny-web:latest --port 8081
 curl http://127.0.0.1:8081/healthz
 docker rm -f tiny-web
+docker context use desktop-linux
 ```
 
 The server defaults to port 8080 when `--port` is omitted. The
-[Metal server example](examples/go-inf-server/README.md) has the full build
-and run workflow for the cgo application and model image.
+[macos-native-images](https://github.com/jtestard/macos-native-images)
+repository builds the llama.cpp, whisper.cpp and Kokoro images from upstream
+source with this builder.

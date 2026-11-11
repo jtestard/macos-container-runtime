@@ -1,39 +1,17 @@
-# llama-server image composition
+# llama-server image
 
-This is the handoff for the **model-free** native llama.cpp server image. The
-build recipe is [examples/llama-server/Dockerfile](../examples/llama-server/Dockerfile);
-the executable build and run commands are in the
-[build plan](LLAMA_SERVER_BUILDPLAN.md).
+`jtstormz/llama-server:ee0445c` is upstream llama.cpp's `llama-server`, built
+for `darwin/arm64` with Metal and **no model bundled**. It is built and
+published from the
+[macos-native-images](https://github.com/jtestard/macos-native-images)
+repository, which pins the llama.cpp commit (`ee0445c`) in its Makefile.
 
-## Build inputs and stages
+## Image contents
 
-| Input | Use | Present in final image? |
-| --- | --- | --- |
-| `llama-source` named context | Staged llama.cpp source from the sibling `go-inf-server/llama.cpp` checkout; verified at commit `ee0445c`. Top-level model files are excluded, while source headers under `tools/mtmd/models` are retained. | No |
-| `cmake-toolchain` named context | macOS CMake distribution, copied into the build stage at `/cmake`. | No |
-| Host compiler, SDK, and `make` | Found with `xcrun` from the Command Line Tools or Xcode and used by the current native BuildKit worker during `RUN`. The worker executes in a writable host snapshot and references these host paths directly. | No |
-| GGUF model | Not a build input. | No |
-
-The `build` stage starts from `scratch`, copies the source and CMake contexts,
-then compiles the `llama-server` target in Release mode. It sets
-`BUILD_SHARED_LIBS=OFF`, `GGML_METAL=ON`, and
-`GGML_METAL_EMBED_LIBRARY=ON`. OpenSSL, the web UI, tests, examples, and the
-unified llama app are disabled. `LLAMA_BUILD_TOOLS=ON` is required by this
-source revision for CMake to define the server target.
-
-The final stage also starts from `scratch`. It copies only the resulting
-Mach-O arm64 `llama-server` binary into `/app/bin/llama-server`. The Metal
-library is embedded in that binary; its remaining dynamic links are macOS
-system libraries and frameworks, including Metal and Accelerate. Neither the
-source tree, build tools, dylibs from Homebrew, nor model weights are copied.
-
-## Verified OCI contents
-
-The local artifact is `.build/llama-server.tar`, an OCI image for
-`darwin/arm64`, about **7.3 MB** as a tarball. Inspection of its two filesystem
-layers found one regular file in total: `app/bin/llama-server`. The other
-layer contains the `app` directory entry; no layer contains a
-GGUF. The image configuration sets:
+The image holds one file, the static `app/bin/llama-server` Mach-O binary with
+the Metal library embedded; its remaining dynamic links are macOS system
+libraries and frameworks. The tarball is about 8 MB. The image configuration
+sets:
 
 | Field | Value |
 | --- | --- |
@@ -42,48 +20,40 @@ GGUF. The image configuration sets:
 | Default command | None; the caller supplies `-m` and a model path |
 | Exposed port metadata | `8082/tcp` |
 
-The image is published in the public Docker Hub repository as
-`jtstormz/tiny-web:llama-server-001`, OCI index digest
-`sha256:ce40c59fa3cba71fce515d6dc5be37fd17ae6c97482e74f0ddfa8c0bb577ad05`.
-The index contains a `darwin/arm64` runnable manifest. Anyone can pull it
-without logging in. The `tiny-web` repository name is shared with the
-project's other images, which are published as tags.
+## Model contract
 
-## Runtime model contract
-
-`macd` registers the OCI tarball as one image. At container creation it accepts
-command arguments and read-only `-v` binds. For example:
+Mount a host directory containing a GGUF read-only at `/app/models` and pass
+a **relative** model path:
 
 ```sh
-MODEL_DIR="/path/to/model-directory"
-docker -H unix:///private/tmp/macnative-llama-docker.sock run -d \
-  --name llama-server \
+MODEL_DIR="$HOME/models/smollm2-360m"
+docker --context macnative pull jtstormz/llama-server:ee0445c
+docker --context macnative run -d --name llama-server \
   -v "$MODEL_DIR:/app/models:ro" \
-  llama-server:local -m models/SmolLM2-360M-Instruct-Q8_0.gguf
+  jtstormz/llama-server:ee0445c -m models/SmolLM2-360M-Instruct-Q8_0.gguf
 ```
 
-The host directory is **not copied into the OCI image**. `imgrun` extracts the
+The host directory is **not copied into the image**. `imgrun` extracts the
 image into a temporary root and links `/app/models` there to the existing host
-directory. Its Seatbelt profile denies writes outside the temporary run
-state. The current runner does not remap absolute image paths, so the model
-argument must be relative to `/app`, as shown. The mount target must be absent
-from the image. `:rw`, Docker `--mount`, and port mapping are unsupported.
-
-This volume-backed image was verified with SmolLM2: the process opened the
-GGUF at its host path, `/health` returned `{"status":"ok"}`, and
-`/v1/chat/completions` returned a response. The process loaded the Apple AGX
-Metal driver. The exact number of model layers offloaded to Metal was not
-measured.
+directory. Its Seatbelt profile denies writes outside the temporary run state.
+The runner does not remap absolute image paths, so the model argument must be
+relative to `/app`, as shown. The mount target must be absent from the image.
+`:rw`, Docker `--mount`, and port mapping are unsupported. Arguments after the
+image name are appended to the entrypoint; a later `--port` overrides 8082.
+`/health` returns HTTP 503 while the model loads.
 
 The Kubernetes adapter in `kube/cmd/mackube` passes container `args` and one
 read-only `hostPath` directory mount to `macd`. The
 [standalone llama example](KUBERNETES.md) uses this image and mounts SmolLM2
 from the Mac. The
-[voice cluster LLM Deployment](../examples/voice-cluster/go-inf-server.yaml)
-defaults to Mistral 7B Instruct and adds `--port 8080` so the existing voice
-agent can keep its `LLM_BASE_URL`.
-Pull the image into `macd` before creating the Pod; the adapter does not pull
-images.
+[voice cluster LLM Deployment](../examples/voice-cluster/llama-server.yaml)
+defaults to Mistral 7B Instruct and adds `--port 8080` so the voice agent can
+keep its `LLM_BASE_URL`. Pull the image into `macd` before creating the Pod;
+the adapter does not pull images.
 
-The older `jtstormz/tiny-web:llama-server-smollm2-001` tag **does** bundle
-SmolLM2. It is an explicit historical variant, not the default composition.
+## Earlier tags
+
+Before the images moved to their own repositories, this image was published as
+`jtstormz/tiny-web:llama-server-001`, built from the same llama.cpp commit. The
+`jtstormz/tiny-web:llama-server-smollm2-001` tag bundles SmolLM2 and is a
+historical variant.

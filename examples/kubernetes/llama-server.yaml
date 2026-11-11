@@ -17,7 +17,6 @@ spec:
     spec:
       nodeSelector:
         macnative.dev/runtime: darwin-arm64
-        macnative.dev/slot: llama
       tolerations:
         - key: macnative.dev/runtime
           operator: Equal
@@ -28,7 +27,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: llama-server
-          image: jtstormz/tiny-web:llama-server-001
+          image: jtstormz/llama-server:ee0445c
           imagePullPolicy: Never
           args:
             - -m

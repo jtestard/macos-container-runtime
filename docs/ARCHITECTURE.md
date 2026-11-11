@@ -10,8 +10,8 @@ architecture remains under review.
 ## 1. Purpose and success criterion
 
 Build and publish `darwin/arm64` OCI images for trusted native macOS
-applications without a Linux VM. The first representative workload is
-`go-inf-server`, which wraps llama.cpp and uses Metal on this Mac. A minimal
+applications without a Linux VM. The representative workload is
+upstream llama.cpp's `llama-server`, which uses Metal on this Mac. A minimal
 [local OCI runner](RUNNER.md) and [Docker API service](DOCKER_RUNTIME.md) now
 launch the tiny CPU example through `docker run`; a full Docker-compatible
 runtime is a later project phase. This document covers the builder.
@@ -23,7 +23,7 @@ remote and a regular Dockerfile. The intended workflow is:
 docker buildx create --name macnative-build --driver remote \
   unix:///path/to/native-buildkit.sock
 docker buildx build --builder macnative-build --platform darwin/arm64 \
-  -t 127.0.0.1:5000/go-inf-server:smollm2 --push .
+  -t 127.0.0.1:5000/llama-server:latest --push .
 ```
 
 The commands above are a target, **not commands that work today**. Buildx
@@ -48,7 +48,7 @@ root is a feasibility test for the build worker and eventual runtime.
 | Host | One macOS arm64 machine. No Linux kernel, Linux VM, or remote builder. |
 | Images | OCI image format with platform `darwin/arm64`. Linux base images are rejected for native build execution. |
 | Network | Registry and BuildKit service local to this Mac. The registry currently uses loopback HTTP; Buildx remote connects through a Unix socket. |
-| First workload | `go-inf-server`, including its arm64 Mach-O binary, dylibs, configuration, and one GGUF model. |
+| First workload | Upstream llama.cpp `llama-server`, an arm64 Mach-O binary with Metal, with its GGUF model mounted from the Mac. (The original first workload, a cgo `go-inf-server` wrapper, has been retired.) |
 | Later work | Broader Docker Engine API and runtime lifecycle, image import and registry pull, process and network isolation, and Kubernetes integration. The tiny image already has a limited `docker run`, `ps`, and `logs` path. |
 
 OCI defines an image manifest, configuration, and filesystem layers; its
@@ -60,17 +60,14 @@ process isolation, root filesystem semantics, or a Docker daemon.
 
 | Component | Current state | Gap |
 | --- | --- | --- |
-| Image packager (`cmd/imgbuild`) | Packages one prebuilt `go-inf-server` payload into an OCI layout with two layers. The extracted payload has run against the host Metal device. | No Dockerfile parsing, build context, `RUN`, or Docker CLI endpoint. |
-| Registry (`cmd/registry`) | Loopback OCI Distribution subset with persistent blobs and tags. The sample image was uploaded and its tag and manifest read back. | Incomplete Distribution API, including chunked uploads, indexes, attestations, and broad client compatibility. |
-| Publisher (`cmd/imgpush`) | Uploads the existing sample layout to the registry. | Temporary bridge; not the intended build interface. |
-| BuildKit service | Pinned v0.24.0 prototype accepts Buildx remote on a Unix socket and exports both the CPU sample and the cgo `go-inf-server` image. | General Dockerfile and registry push behavior are unvalidated. |
+| Registry (`cmd/registry`) | Loopback OCI Distribution subset with persistent blobs and tags. | Incomplete Distribution API, including chunked uploads, indexes, attestations, and broad client compatibility. |
+| BuildKit service | Pinned v0.24.0 prototype accepts Buildx remote on a Unix socket and exports the CPU sample, tiny-web, and llama.cpp server images. | General Dockerfile and registry push behavior are unvalidated. |
 | Native build worker | Experimental Darwin worker runs host `/bin/sh` under Seatbelt with writes limited to a snapshot directory. | No image-root view, full containment boundary, or verified Metal access inside `RUN`; Metal has been verified when running the exported image. |
-| Local runner (`cmd/imgrun`) | Launches the tiny and `go-inf-server` Buildx OCI tarballs on this Mac; the latter loaded SmolLM2 through Metal. | Only regular files and directories, relative entrypoint, no image-root view or Docker API. |
+| Local runner (`cmd/imgrun`) | Launches Buildx OCI tarballs on this Mac, including the llama.cpp server, which loads its model through Metal. | Only regular files and directories, relative entrypoint, no image-root view or Docker API. |
 | Docker API service (`cmd/macd`) | Registers one local image and supports `docker --context macnative run`, `ps`, `logs`, `stop`, and `rm`; both examples have run through it. | Narrow Engine API subset, no image store, port mapping, or Docker isolation. |
 
-Registry data is under `dist/registry`; the existing sample OCI layout is under
-`dist/go-inf-server-smollm2`. Both are local artifacts, not a completed image
-builder.
+Registry data is under `dist/registry`, a local artifact rather than a
+completed image distribution service.
 
 ## 4. Proposed component boundaries
 
@@ -232,7 +229,7 @@ This is a proposed sequence for review, not an implementation commitment.
 | C. Buildx connection | `docker buildx ls` and `docker buildx inspect macnative` recognize a host-local service that advertises `darwin/arm64`. |
 | D. Basic Dockerfile | `docker buildx build --builder macnative-build` builds a `FROM scratch` Dockerfile with `.dockerignore`, `COPY`, `WORKDIR`, `ENV`, `ENTRYPOINT`, and `CMD` from a regular context. |
 | E. Native `RUN` | A Dockerfile with a Darwin toolchain base and a `RUN` step compiles a small arm64 Mach-O program, records the expected layer, and fails cleanly when a shell or tool is absent. |
-| F. Registry round trip | Buildx `--push` publishes `go-inf-server` as `darwin/arm64`; the manifest and each layer can be fetched by digest, verified, and materialized into an equivalent filesystem. |
+| F. Registry round trip | Buildx `--push` publishes `llama-server` as `darwin/arm64`; the manifest and each layer can be fetched by digest, verified, and materialized into an equivalent filesystem. |
 
 Gate A should happen before deep BuildKit integration. It decides whether
 Dockerfile `RUN` semantics can be supported on this host. Gate B determines
@@ -241,7 +238,7 @@ useful progress but does not replace native `RUN` at Gate E.
 
 ## 9. Questions for review
 
-1. Must the first Dockerfile compile `go-inf-server` from source with `RUN`,
+1. Must the first Dockerfile compile its workload from source with `RUN`,
    or may it initially package an already-built native binary?
 2. What host macOS resources may `RUN` use: system frameworks, Xcode tools,
    network, home directory, keychain, and Metal?
