@@ -60,8 +60,8 @@ repository, which holds their build recipes and the voice app's source:
 | `jtstormz/llama-server:ee0445c-2` | upstream llama.cpp; model mounted from the Mac, see [LLAMA_SERVER_IMAGE.md](LLAMA_SERVER_IMAGE.md) |
 | `jtstormz/whisper-server:v1.9.1-base.en-2` | upstream whisper.cpp with the English base model |
 | `jtstormz/kokoro:b4ef64b-2` | upstream Kokoro-FastAPI with the Kokoro-82M weights |
-| `jtstormz/voice-agent:0.1.2` | the demo agent in that repository's `voice/agent` |
-| `jtstormz/voice-web:0.1.2` (Linux) | the demo browser client in its `voice/web` |
+| `jtstormz/voice-agent:0.1.3` | the demo agent in that repository's `voice/agent` |
+| `jtstormz/voice-web:0.1.3` (Linux) | the demo browser client in its `voice/web` |
 
 ## Start
 
@@ -71,7 +71,7 @@ images into it:
 
 ```sh
 for image in jtstormz/llama-server:ee0445c-2 jtstormz/whisper-server:v1.9.1-base.en-2 \
-    jtstormz/kokoro:b4ef64b-2 jtstormz/voice-agent:0.1.2; do
+    jtstormz/kokoro:b4ef64b-2 jtstormz/voice-agent:0.1.3; do
   docker --context macnative pull "$image"
 done
 ```
