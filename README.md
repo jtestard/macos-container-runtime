@@ -59,12 +59,16 @@ without it, the server uses 8080. Its source is in
 This model-free llama.cpp image runs natively on macOS and uses Metal. Keep the
 GGUF in a directory on the Mac and mount it read-only into the image. See the
 [image composition note](docs/LLAMA_SERVER_IMAGE.md) for its build inputs and
-volume contract. Replace the `MODEL_DIR` value below with the absolute path to
-the directory containing your GGUF file.
+volume contract. The commands below download the small SmolLM2 model (about
+390 MB) from Hugging Face into `~/models/smollm2-360m`; to use a GGUF you
+already have, set `MODEL_DIR` to its directory and change the `-m` file name.
 
 ```sh
+MODEL_DIR="$HOME/models/smollm2-360m"
+mkdir -p "$MODEL_DIR"
+curl -fL -o "$MODEL_DIR/SmolLM2-360M-Instruct-Q8_0.gguf" \
+  https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q8_0.gguf
 docker pull jtstormz/tiny-web:llama-server-001
-MODEL_DIR="/path/to/model-directory"
 docker run -d --name llama-server \
   -v "$MODEL_DIR:/app/models:ro" \
   jtstormz/tiny-web:llama-server-001 \

@@ -87,10 +87,9 @@ kubectl --context kind-livekit -n livekit rollout status deployment/voice-web
 ```
 
 The LLM Deployment uses the model-free `llama-server` image with
-`Mistral-7B-Instruct-v0.3-Q4_K_M.gguf` as its default model. Reuse the GGUF
-already in your `go-inf-server/models/mistral-7b` directory on the Mac. Set
-`APP_SOURCE` to that checkout's absolute path; `MODEL_DIR` then selects the
-model directory. The manifest's `__MODEL_DIR__` placeholder is filled when you
+`Mistral-7B-Instruct-v0.3-Q4_K_M.gguf` as its default model. The commands below
+download it (about 4.4 GB) from Hugging Face into `~/models/mistral-7b`;
+`MODEL_DIR` selects the model directory. The manifest's `__MODEL_DIR__` placeholder is filled when you
 apply it, so no personal path is stored in the YAML. **Apply only the rendered
 manifest below.** Applying the template file directly leaves `__MODEL_DIR__`
 in the Pod, and `mackube` rejects that relative path. If this already happened,
@@ -112,9 +111,11 @@ to load models and Metal kernels. Check their HTTP endpoints before starting
 the agent:
 
 ```sh
-APP_SOURCE="/path/to/go-inf-server"
-MODEL_DIR="$APP_SOURCE/models/mistral-7b"
-test -f "$MODEL_DIR/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
+MODEL_DIR="$HOME/models/mistral-7b"
+mkdir -p "$MODEL_DIR"
+test -f "$MODEL_DIR/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf" || curl -fL \
+  -o "$MODEL_DIR/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf" \
+  https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf
 sed "s|__MODEL_DIR__|$MODEL_DIR|g" examples/voice-cluster/llama-server.yaml \
   | kubectl --context kind-livekit apply -f -
 kubectl --context kind-livekit apply \

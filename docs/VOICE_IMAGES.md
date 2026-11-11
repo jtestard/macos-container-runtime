@@ -53,11 +53,15 @@ rsync -a "$NODE_HOME/lib/node_modules/npm/" \
 
 The Node binary and npm tree must come from the same distribution.
 
-Clone the pinned Whisper source and stage a macOS CMake distribution:
+Clone the pinned Whisper source, download its English base model from
+Hugging Face, and stage a macOS CMake distribution:
 
 ```sh
 git clone --branch v1.9.1 --depth 1 \
   https://github.com/ggml-org/whisper.cpp.git .build/whisper-src
+mkdir -p .build/whisper-model
+curl -fL -o .build/whisper-model/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
 ```
 
 The `cmake-toolchain` context must contain `bin/cmake` and its resource tree.
@@ -77,7 +81,7 @@ docker --context desktop-linux buildx build --platform linux/arm64 \
 
 docker buildx build --builder macnative-build --platform darwin/arm64 \
   --build-context "whisper-source=$PWD/.build/whisper-src" \
-  --build-context "whisper-model=$APP_SOURCE/models/whisper" \
+  --build-context "whisper-model=$PWD/.build/whisper-model" \
   --build-context "cmake-toolchain=$CMAKE_TOOLCHAIN" \
   --progress plain --output type=oci,dest=.build/whisper-base-en.tar \
   examples/voice-cluster/whisper
