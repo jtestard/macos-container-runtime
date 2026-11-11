@@ -150,8 +150,10 @@ remove both again:
 ```
 
 The [Kubernetes usage guide](docs/KUBERNETES.md) explains them and runs a
-llama server on the Mac node. The
-[voice cluster guide](docs/VOICE_CLUSTER.md) covers the larger LiveKit setup.
+llama server on the Mac node. To talk to a voice assistant whose models all
+run natively on the Mac, follow the
+[voice assistant quickstart](docs/VOICE_QUICKSTART.md); the
+[voice cluster guide](docs/VOICE_CLUSTER.md) explains how it fits together.
 
 ## Current limits
 
