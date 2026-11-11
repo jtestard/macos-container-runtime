@@ -74,9 +74,9 @@ combines the two daemons' container lists.
 Pull a trusted Darwin image before running it:
 
 ```sh
-docker --context macnative pull jtstormz/tiny-web:llama-server-001
+docker --context macnative pull jtstormz/llama-server:ee0445c
 docker --context macnative images
-docker --context macnative image inspect jtstormz/tiny-web:llama-server-001
+docker --context macnative image inspect jtstormz/llama-server:ee0445c
 ```
 
 The registry selection is fixed to `darwin/arm64`. Docker CLI credentials

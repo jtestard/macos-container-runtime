@@ -1,32 +1,36 @@
 # Voice stack images
 
 The dedicated `livekit` Kind cluster runs LiveKit and the web UI as Linux/arm64
-images. The four model and agent services run from `darwin/arm64` OCI images
-through the local BuildKit worker, `imgrun`, `macd`, and `mackube`. See
-[VOICE_CLUSTER.md](VOICE_CLUSTER.md) for deployment and ports. The BuildKit
-worker and the `macnative-build` Buildx builder are set up in the
-[main README](../README.md).
+images. Four services run as native `darwin/arm64` processes through `macd`
+and `mackube`. See [VOICE_CLUSTER.md](VOICE_CLUSTER.md) for deployment and
+ports.
 
-Build outputs go to the ignored `.build` directory. The sibling
-`go-inf-server` checkout supplies the web and agent source, speech settings,
-Kokoro source and weights, and Whisper model. The LLM now uses the model-free
-[llama-server image](LLAMA_SERVER_IMAGE.md); its GGUF stays on the Mac and is
-mounted when the Pod starts. See the [llama build plan](LLAMA_SERVER_BUILDPLAN.md)
-for its build and published image tag.
-The verified build used `go-inf-server` commit `351a70a`, its Kokoro checkout
-at `b4ef64b`, Whisper v1.9.1 at `f049fff`, and Node v20.11.1 with npm 10.2.4.
+Three of the native images are third-party servers, built and published by the
+[macos-native-images](https://github.com/jtestard/macos-native-images)
+repository; pull them, there is nothing to build here:
+
+| Service | Image |
+| --- | --- |
+| LLM | `jtstormz/llama-server:ee0445c` (model mounted from the Mac, see [LLAMA_SERVER_IMAGE.md](LLAMA_SERVER_IMAGE.md)) |
+| Speech-to-text | `jtstormz/whisper-server:v1.9.1-base.en` |
+| Text-to-speech | `jtstormz/kokoro:b4ef64b` |
+
+This page builds the voice application's own two images: the web UI (Linux)
+and the voice agent (`darwin/arm64`). The BuildKit worker and the
+`macnative-build` Buildx builder are set up in the [main README](../README.md).
+Build outputs go to the ignored `.build` directory.
 
 ## Prepare build contexts
 
-The named contexts below make the toolchains and application sources explicit.
-They are build inputs, not paths the final image uses on the host. Replace the
-source path with your own checkout by setting `APP_SOURCE` in your shell.
+The web and agent sources, and the agent's `speech.env`, come from the voice
+application checkout; set `APP_SOURCE` to its path. The verified build used
+its commit `351a70a` with Node v20.11.1 and npm 10.2.4.
 
 ```sh
-APP_SOURCE="/path/to/go-inf-server"
+APP_SOURCE="/path/to/voice-app"
 mkdir -p .build/voice-web-context/cmd .build/voice-agent-context/agent \
   .build/node-toolchain/bin .build/node-toolchain/lib/node_modules \
-  .build/uv-toolchain .build/voice-launch
+  .build/voice-launch
 cp "$APP_SOURCE/go.mod" "$APP_SOURCE/go.sum" .build/voice-web-context/
 rsync -a --delete --exclude node_modules --exclude dist \
   "$APP_SOURCE/cmd/web/" .build/voice-web-context/cmd/web/
@@ -34,16 +38,13 @@ rsync -a --delete "$APP_SOURCE/agent/src/" .build/voice-agent-context/agent/src/
 cp "$APP_SOURCE/agent/package.json" "$APP_SOURCE/agent/package-lock.json" \
   "$APP_SOURCE/agent/tsconfig.json" .build/voice-agent-context/agent/
 cp "$APP_SOURCE/speech.env" .build/voice-agent-context/
-rsync -a --delete --exclude .git --exclude .venv --exclude node_modules \
-  --exclude '*.pth' \
-  "$APP_SOURCE/third_party/Kokoro-FastAPI/" .build/kokoro-source/
-cp -L "$(command -v uv)" .build/uv-toolchain/uv
-go build -o .build/voice-launch/launch ./examples/voice-cluster/launcher
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
+  go build -o .build/voice-launch/launch ./examples/voice-cluster/launcher
 ```
 
 The agent context expects a macOS arm64 Node distribution with
-`bin/node` and `lib/node_modules/npm/`. The build on this Mac used Node
-v20.11.1. Set `NODE_HOME` to its extracted distribution root, then stage it:
+`bin/node` and `lib/node_modules/npm/`. Set `NODE_HOME` to its extracted
+distribution root, then stage it:
 
 ```sh
 cp "$NODE_HOME/bin/node" .build/node-toolchain/bin/node
@@ -53,38 +54,12 @@ rsync -a "$NODE_HOME/lib/node_modules/npm/" \
 
 The Node binary and npm tree must come from the same distribution.
 
-Clone the pinned Whisper source, download its English base model from
-Hugging Face, and stage a macOS CMake distribution:
-
-```sh
-git clone --branch v1.9.1 --depth 1 \
-  https://github.com/ggml-org/whisper.cpp.git .build/whisper-src
-mkdir -p .build/whisper-model
-curl -fL -o .build/whisper-model/ggml-base.en.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
-```
-
-The `cmake-toolchain` context must contain `bin/cmake` and its resource tree.
-Set `CMAKE_TOOLCHAIN` to the `CMake.app/Contents` directory on your Mac, or to
-a Homebrew CMake keg such as `/opt/homebrew/Cellar/cmake/<version>`. The
-Whisper Dockerfile finds the compiler with `xcrun`, so the free Command Line
-Tools (`xcode-select --install`) are enough; full Xcode is not required.
-
 ## Build
 
 ```sh
-APP_SOURCE="/path/to/go-inf-server"
-CMAKE_TOOLCHAIN="/path/to/CMake.app/Contents"
 docker --context desktop-linux buildx build --platform linux/arm64 \
   -t macvoice-web:local -f examples/voice-cluster/web/Dockerfile \
   --load .build/voice-web-context
-
-docker buildx build --builder macnative-build --platform darwin/arm64 \
-  --build-context "whisper-source=$PWD/.build/whisper-src" \
-  --build-context "whisper-model=$PWD/.build/whisper-model" \
-  --build-context "cmake-toolchain=$CMAKE_TOOLCHAIN" \
-  --progress plain --output type=oci,dest=.build/whisper-base-en.tar \
-  examples/voice-cluster/whisper
 
 docker buildx build --builder macnative-build --platform darwin/arm64 \
   --build-context "node-toolchain=$PWD/.build/node-toolchain" \
@@ -92,22 +67,10 @@ docker buildx build --builder macnative-build --platform darwin/arm64 \
   --build-context "voice-launcher=$PWD/.build/voice-launch" \
   --progress plain --output type=oci,dest=.build/voice-agent.tar \
   examples/voice-cluster/agent
-
-docker buildx build --builder macnative-build --platform darwin/arm64 \
-  --build-context "uv-toolchain=$PWD/.build/uv-toolchain" \
-  --build-context "kokoro-source=$PWD/.build/kokoro-source" \
-  --build-context "kokoro-weights=$APP_SOURCE/third_party/Kokoro-FastAPI/api/src/models/v1_0" \
-  --build-context "voice-launcher=$PWD/.build/voice-launch" \
-  --progress plain --output type=oci,dest=.build/kokoro-mps.tar \
-  examples/voice-cluster/kokoro
 ```
 
-The native builder executes `RUN` in writable host snapshots, so these
-Dockerfiles calculate snapshot paths for staged compilers. The runtime extracts
-each image under a fresh temporary root. The agent and Kokoro images use a
-small Go launcher to resolve that root at startup. The agent build downloads
-its local VAD and turn detector files. The Kokoro build downloads a managed
-Python 3.12 distribution and its Python packages. The Kokoro dependency set
-is currently resolved from upstream version ranges at build time; the image
-itself is fixed once exported, but rebuilding later can select newer package
-versions.
+The native builder executes `RUN` in writable host snapshots, so the agent
+Dockerfile calculates snapshot paths for its staged Node. The runtime extracts
+each image under a fresh temporary root, and the agent image uses the small Go
+[launcher](../examples/voice-cluster/launcher/main.go) to resolve that root at
+startup. The agent build downloads its local VAD and turn detector files.

@@ -68,10 +68,10 @@ MODEL_DIR="$HOME/models/smollm2-360m"
 mkdir -p "$MODEL_DIR"
 curl -fL -o "$MODEL_DIR/SmolLM2-360M-Instruct-Q8_0.gguf" \
   https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q8_0.gguf
-docker pull jtstormz/tiny-web:llama-server-001
+docker pull jtstormz/llama-server:ee0445c
 docker run -d --name llama-server \
   -v "$MODEL_DIR:/app/models:ro" \
-  jtstormz/tiny-web:llama-server-001 \
+  jtstormz/llama-server:ee0445c \
   -m models/SmolLM2-360M-Instruct-Q8_0.gguf
 docker logs llama-server
 curl http://127.0.0.1:8082/health
@@ -149,7 +149,7 @@ llama server on the Mac node. The
 `macd` keeps container records in memory and pulled images on disk.
 The Docker API supports a narrow set of commands including `run`, `ps`,
 `logs`, `stop`, and `rm`. Read-only `-v` binds and command arguments are
-supported; see the [model-free llama-server example](docs/LLAMA_SERVER_BUILDPLAN.md).
+supported; see the [llama-server image](docs/LLAMA_SERVER_IMAGE.md).
 `docker pull` accepts `darwin/arm64` images. There is no `docker load` or port mapping yet. The
 builder's shell still resolves absolute paths on the host rather than inside
 the image. The worker and runner use
@@ -190,5 +190,6 @@ docker rm -f tiny-web
 ```
 
 The server defaults to port 8080 when `--port` is omitted. The
-[llama-server build plan](docs/LLAMA_SERVER_BUILDPLAN.md) builds the Metal
-llama.cpp server image from upstream source.
+[macos-native-images](https://github.com/jtestard/macos-native-images)
+repository builds the llama.cpp, whisper.cpp and Kokoro images from upstream
+source with this builder.

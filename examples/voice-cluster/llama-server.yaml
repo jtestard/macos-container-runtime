@@ -28,7 +28,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: llama-server
-          image: jtstormz/tiny-web:llama-server-001
+          image: jtstormz/llama-server:ee0445c
           imagePullPolicy: Never
           args:
             - -m

@@ -53,7 +53,7 @@ not in `~/Library/LaunchAgents`, which is why it never starts at login.
 1. Pull the published `darwin/arm64` image into `macd` and start the cluster:
 
    ```sh
-   docker pull jtstormz/tiny-web:llama-server-001
+   docker pull jtstormz/llama-server:ee0445c
    ./scripts/kube-up.sh
    ```
 

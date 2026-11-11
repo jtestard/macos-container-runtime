@@ -44,8 +44,9 @@ Pods is not implemented yet.
 
 ## Build and start
 
-Build the images using [VOICE_IMAGES.md](VOICE_IMAGES.md). The LLM image build
-and model mount are described in [LLAMA_SERVER_IMAGE.md](LLAMA_SERVER_IMAGE.md).
+Build the web UI and voice agent images using [VOICE_IMAGES.md](VOICE_IMAGES.md);
+the LLM, Whisper and Kokoro images are pulled from Docker Hub below. The LLM's
+model mount is described in [LLAMA_SERVER_IMAGE.md](LLAMA_SERVER_IMAGE.md).
 Build `imgrun` and `macd`:
 
 ```sh
@@ -53,16 +54,23 @@ go build -o .build/imgrun ./cmd/imgrun
 go build -o .build/macd ./cmd/macd
 ```
 
-Start one `macd` with all four local OCI images, on its own socket. Keep it
-running in a terminal or under a process supervisor:
+Start one `macd` for the voice stack on its own socket and image store, with
+the locally built agent image. Keep it running in a terminal or under a
+process supervisor:
 
 ```sh
-.build/macd \
-  -load jtstormz/tiny-web:llama-server-001=.build/llama-server.tar \
-  -load whisper-base-en:local=.build/whisper-base-en.tar \
-  -load kokoro-mps:local=.build/kokoro-mps.tar \
-  -load voice-agent:local=.build/voice-agent.tar \
-  -runner .build/imgrun -socket /private/tmp/macnative-voice-docker.sock
+.build/macd -load voice-agent:local=.build/voice-agent.tar \
+  -runner .build/imgrun -store .build/voice-images \
+  -socket /private/tmp/macnative-voice-docker.sock
+```
+
+In another terminal, pull the three published service images into it:
+
+```sh
+for image in jtstormz/llama-server:ee0445c \
+    jtstormz/whisper-server:v1.9.1-base.en jtstormz/kokoro:b4ef64b; do
+  docker -H unix:///private/tmp/macnative-voice-docker.sock pull "$image"
+done
 ```
 
 Once the socket exists, create the dedicated cluster with its port mappings
@@ -102,10 +110,7 @@ GGUF with the image's default mmap mode stalled in Metal residency. The Pod
 sets `--load-mode none` and offloads 16 layers to Metal; that configuration
 reached `/health` successfully. `llama-server` logs duplicate-argument warnings
 for the port and GPU layer count because the Pod overrides image defaults; the
-appended values win. If `.build/llama-server.tar` is absent,
-download the published tag as an OCI tarball using the
-[root README](../README.md#run-a-llama-server-with-metal)
-before starting `macd`. Deploy the three API services first. Their Pods
+appended values win. Deploy the three API services first. Their Pods
 report `Running` when the process starts; the LLM and Kokoro need more time
 to load models and Metal kernels. Check their HTTP endpoints before starting
 the agent:
