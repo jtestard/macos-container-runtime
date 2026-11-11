@@ -6,9 +6,10 @@ processes through `macd` and Virtual Kubelet: the Metal LLM, Whisper STT,
 Kokoro TTS, and LiveKit voice agent. One `macd` holds the four native images,
 and one `mackube` registers the Mac as a single virtual node for all four Pods.
 
-The older `kind-kind` cluster has been removed. The default kubeconfig now
-selects `kind-livekit`; every command below also names the dedicated
-`.build/livekit-kubeconfig` explicitly.
+The cluster and its `mackube` are created and removed together by
+`scripts/kube-up.sh livekit` and `scripts/kube-down.sh livekit`, described in
+[Kubernetes usage](KUBERNETES.md). Every command below names the
+`kind-livekit` kubectl context explicitly.
 
 ## Progress
 
@@ -45,32 +46,15 @@ Pods is not implemented yet.
 
 Build the images using [VOICE_IMAGES.md](VOICE_IMAGES.md). The LLM image build
 and model mount are described in [LLAMA_SERVER_IMAGE.md](LLAMA_SERVER_IMAGE.md).
-Build `imgrun`, `macd`, and `mackube` as in [KUBERNETES.md](KUBERNETES.md):
+Build `imgrun` and `macd`:
 
 ```sh
 go build -o .build/imgrun ./cmd/imgrun
 go build -o .build/macd ./cmd/macd
-(cd kube && go build -o ../.build/mackube ./cmd/mackube)
 ```
 
-Create the dedicated cluster, load the web image, and deploy its Linux Pods:
-
-```sh
-kind create cluster --config examples/voice-cluster/livekit/kind-cluster.yaml \
-  --kubeconfig .build/livekit-kubeconfig
-kind load docker-image macvoice-web:local --name livekit
-kubectl --kubeconfig .build/livekit-kubeconfig apply -k examples/voice-cluster/livekit
-kubectl --kubeconfig .build/livekit-kubeconfig apply -f examples/voice-cluster/web.yaml
-kubectl --kubeconfig .build/livekit-kubeconfig -n livekit rollout status deployment/livekit
-kubectl --kubeconfig .build/livekit-kubeconfig -n livekit rollout status deployment/voice-web
-```
-
-To make plain `kubectl` use this cluster as well, run
-`kind export kubeconfig --name livekit`. This adds `kind-livekit` to the
-default kubeconfig and selects it without removing other non-Kind contexts.
-
-Start one `macd` with all four local OCI images. Keep it running in a terminal
-or under a process supervisor:
+Start one `macd` with all four local OCI images, on its own socket. Keep it
+running in a terminal or under a process supervisor:
 
 ```sh
 .build/macd \
@@ -81,17 +65,26 @@ or under a process supervisor:
   -runner .build/imgrun -socket /private/tmp/macnative-voice-docker.sock
 ```
 
-Once the socket exists, start one `mackube`:
+Once the socket exists, create the dedicated cluster with its port mappings
+and join the Mac to it as the node `macnative`, served by this `macd`:
 
 ```sh
-.build/mackube -kind-cluster livekit -kubeconfig .build/livekit-kubeconfig \
-  -node-name macnative -socket /private/tmp/macnative-voice-docker.sock \
-  -kubelet-address host.docker.internal -kubelet-port 10250
+KIND_CONFIG=examples/voice-cluster/livekit/kind-cluster.yaml \
+MACD_SOCKET=/private/tmp/macnative-voice-docker.sock \
+  ./scripts/kube-up.sh livekit
 ```
 
-The kubelet port must be reachable from Kind's control-plane container.
-The virtual kubelet HTTPS endpoints require a client certificate signed by
-the cluster CA in the saved kubeconfig.
+If another cluster's `mackube` already uses port 10250, also set
+`MACKUBE_PORT` to a free port. Then load the web image and deploy the Linux
+Pods:
+
+```sh
+DOCKER_CONTEXT=desktop-linux kind load docker-image macvoice-web:local --name livekit
+kubectl --context kind-livekit apply -k examples/voice-cluster/livekit
+kubectl --context kind-livekit apply -f examples/voice-cluster/web.yaml
+kubectl --context kind-livekit -n livekit rollout status deployment/livekit
+kubectl --context kind-livekit -n livekit rollout status deployment/voice-web
+```
 
 The LLM Deployment uses the model-free `llama-server` image with
 `Mistral-7B-Instruct-v0.3-Q4_K_M.gguf` as its default model. Reuse the GGUF
@@ -123,14 +116,14 @@ APP_SOURCE="/path/to/go-inf-server"
 MODEL_DIR="$APP_SOURCE/models/mistral-7b"
 test -f "$MODEL_DIR/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
 sed "s|__MODEL_DIR__|$MODEL_DIR|g" examples/voice-cluster/go-inf-server.yaml \
-  | kubectl --kubeconfig .build/livekit-kubeconfig apply -f -
-kubectl --kubeconfig .build/livekit-kubeconfig apply \
+  | kubectl --context kind-livekit apply -f -
+kubectl --context kind-livekit apply \
   -f examples/voice-cluster/whisper.yaml \
   -f examples/voice-cluster/kokoro.yaml
 curl http://127.0.0.1:8080/health
 curl http://127.0.0.1:8880/health
-kubectl --kubeconfig .build/livekit-kubeconfig apply -f examples/voice-cluster/agent.yaml
-kubectl --kubeconfig .build/livekit-kubeconfig -n livekit get pods -o wide
+kubectl --context kind-livekit apply -f examples/voice-cluster/agent.yaml
+kubectl --context kind-livekit -n livekit get pods -o wide
 ```
 
 Open `http://127.0.0.1:8090`. The web server mints a room token and points
@@ -152,8 +145,8 @@ LiveKit logs use `kubectl logs deployment/livekit`. Native Pod logs also work
 through Kubernetes, including `--tail` and `-f`:
 
 ```sh
-kubectl --kubeconfig .build/livekit-kubeconfig -n livekit logs deployment/go-inf-server --tail=20
-stern --kubeconfig .build/livekit-kubeconfig -n livekit kokoro
+kubectl --context kind-livekit -n livekit logs deployment/go-inf-server --tail=20
+stern --context kind-livekit -n livekit kokoro
 ```
 
 See [Kubernetes usage](KUBERNETES.md#current-limits) for unsupported log
@@ -161,26 +154,32 @@ options.
 
 ## Stop or recreate
 
-Delete native Deployments before stopping `mackube` so it can terminate the
-macOS process groups. Then stop `mackube` and `macd`. To stop the Linux Pods as
-well, delete the web manifest and LiveKit kustomization:
+To remove everything, run the script, then stop `macd`:
 
 ```sh
-kubectl --kubeconfig .build/livekit-kubeconfig delete \
+./scripts/kube-down.sh livekit
+```
+
+It stops the four native Pods (and their macOS process groups) before
+stopping `mackube` and deleting the cluster, which also removes the Linux Pods.
+
+To stop only the workloads and keep the cluster, delete the native
+Deployments, then the Linux ones:
+
+```sh
+kubectl --context kind-livekit delete \
   -f examples/voice-cluster/agent.yaml \
   -f examples/voice-cluster/kokoro.yaml \
   -f examples/voice-cluster/whisper.yaml
-kubectl --kubeconfig .build/livekit-kubeconfig -n livekit delete deployment go-inf-server
-kubectl --kubeconfig .build/livekit-kubeconfig -n livekit wait --for=delete pod \
+kubectl --context kind-livekit -n livekit delete deployment go-inf-server
+kubectl --context kind-livekit -n livekit wait --for=delete pod \
   -l 'app in (go-inf-server,whisper-stt,kokoro-tts,voice-agent)' --timeout=120s
-kubectl --kubeconfig .build/livekit-kubeconfig delete -f examples/voice-cluster/web.yaml
-kubectl --kubeconfig .build/livekit-kubeconfig delete -k examples/voice-cluster/livekit
+kubectl --context kind-livekit delete -f examples/voice-cluster/web.yaml
+kubectl --context kind-livekit delete -k examples/voice-cluster/livekit
 ```
 
-Changing `kind-cluster.yaml` port mappings requires recreating this dedicated
-cluster. After stopping native Pods and adapters, use
-`kind delete cluster --name livekit --kubeconfig .build/livekit-kubeconfig`,
-then follow the start sequence above.
+Changing `kind-cluster.yaml` port mappings requires recreating the cluster:
+run `kube-down.sh livekit`, then follow the start sequence above.
 
 ## Prototype limits
 
