@@ -27,7 +27,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: kokoro
-          image: jtstormz/kokoro:b4ef64b
+          image: jtstormz/kokoro:b4ef64b-2
           imagePullPolicy: Never
           ports:
-            - containerPort: 8880
+            - containerPort: 20085

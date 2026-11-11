@@ -28,13 +28,11 @@ spec:
       enableServiceLinks: false
       containers:
         - name: llama-server
-          image: jtstormz/llama-server:ee0445c
+          image: jtstormz/llama-server:ee0445c-2
           imagePullPolicy: Never
           args:
             - -m
             - models/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf
-            - --port
-            - "8080"
             - --n-gpu-layers
             - "16"
             - --load-mode
@@ -44,7 +42,7 @@ spec:
               mountPath: /app/models
               readOnly: true
           ports:
-            - containerPort: 8080
+            - containerPort: 20082
       volumes:
         - name: llama-model
           hostPath:

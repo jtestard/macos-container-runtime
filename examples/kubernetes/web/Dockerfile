@@ -14,5 +14,5 @@ RUN mkdir -p .go-cache .gopath .tmp \
 FROM scratch
 WORKDIR /app
 COPY --from=build /app/server ./server
-EXPOSE 8081
+EXPOSE 20081
 ENTRYPOINT ["./server"]

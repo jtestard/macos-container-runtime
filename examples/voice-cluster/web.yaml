@@ -18,11 +18,11 @@ spec:
       enableServiceLinks: false
       containers:
         - name: web
-          image: jtstormz/voice-web:0.1.0
+          image: jtstormz/voice-web:0.1.1
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8090
+              containerPort: 20090
           readinessProbe:
             httpGet:
               path: /healthz
@@ -43,7 +43,7 @@ spec:
     app: voice-web
   ports:
     - name: http
-      port: 8090
+      port: 20090
       targetPort: http
       nodePort: 30900
       protocol: TCP

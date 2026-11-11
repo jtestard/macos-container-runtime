@@ -29,4 +29,4 @@ spec:
           image: kube-web:latest
           imagePullPolicy: Never
           ports:
-            - containerPort: 8081
+            - containerPort: 20081

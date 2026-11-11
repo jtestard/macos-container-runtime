@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	port := flag.Int("port", 8080, "HTTP listening port")
+	port := flag.Int("port", 20081, "HTTP listening port")
 	flag.Parse()
 	if flag.NArg() != 0 || *port < 1 || *port > 65535 {
 		log.Fatal("usage: server [--port 1..65535]")

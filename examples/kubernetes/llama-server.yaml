@@ -27,7 +27,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: llama-server
-          image: jtstormz/llama-server:ee0445c
+          image: jtstormz/llama-server:ee0445c-2
           imagePullPolicy: Never
           args:
             - -m
@@ -37,7 +37,7 @@ spec:
               mountPath: /app/models
               readOnly: true
           ports:
-            - containerPort: 8082
+            - containerPort: 20082
       volumes:
         - name: model
           hostPath:

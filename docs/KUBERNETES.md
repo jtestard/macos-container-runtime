@@ -53,7 +53,7 @@ not in `~/Library/LaunchAgents`, which is why it never starts at login.
 1. Pull the published `darwin/arm64` image into `macd` and start the cluster:
 
    ```sh
-   docker --context macnative pull jtstormz/llama-server:ee0445c
+   docker --context macnative pull jtstormz/llama-server:ee0445c-2
    ./scripts/kube-up.sh
    ```
 
@@ -71,12 +71,12 @@ not in `~/Library/LaunchAgents`, which is why it never starts at login.
 
    The template uses `__MODEL_DIR__` so no personal model path is stored in
    the repository. The image expects the model at `/app/models` and listens on
-   host port 8082, which must be free.
+   host port 20082, which must be free.
 
 3. Check the server:
 
    ```sh
-   curl http://127.0.0.1:8082/health
+   curl http://127.0.0.1:20082/health
    kubectl --context kind-macnative logs deployment/macnative-llama --tail=20
    docker --context macnative ps
    ```
@@ -102,7 +102,7 @@ environment variables:
 | `KIND_CONFIG` | none | Kind cluster config file, for port mappings and similar. |
 | `MACKUBE_NODE` | `macnative` | Name of the Mac node. |
 | `MACKUBE_SLOT` | none | Adds a `macnative.dev/slot` node label for Pod placement. |
-| `MACKUBE_PORT` | `10250` | Virtual kubelet HTTPS port; each running cluster needs its own. |
+| `MACKUBE_PORT` | `20250` | Virtual kubelet HTTPS port; each running cluster needs its own. |
 | `MACD_SOCKET` | `/private/tmp/macnative-docker.sock` | The `macd` instance that runs this cluster's Pods. |
 | `KIND_DOCKER_CONTEXT` | `desktop-linux` | Docker context that runs Kind. |
 

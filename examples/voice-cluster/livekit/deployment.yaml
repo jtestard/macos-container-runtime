@@ -23,12 +23,12 @@ spec:
     spec:
       # Not optional, and the reason is non-obvious. Kubernetes injects
       # Docker-link-style env vars for every Service in the namespace, so a
-      # Service named `livekit` produces LIVEKIT_PORT=tcp://10.96.x.x:7880.
+      # Service named `livekit` produces LIVEKIT_PORT=tcp://10.96.x.x:20880.
       # livekit-server reads LIVEKIT_PORT as the value of its --port flag
       # (its CLI binds flags to LIVEKIT_*-prefixed env vars, which is also
       # how LIVEKIT_KEYS reaches it), so the pod crashloops on:
       #
-      #   could not parse "tcp://10.96.70.127:7880" as uint value from
+      #   could not parse "tcp://10.96.70.127:20880" as uint value from
       #   environment variable "LIVEKIT_PORT" for flag port
       #
       # The Service exposing the app poisons the app. Renaming the Service
@@ -56,19 +56,19 @@ spec:
                 name: livekit-keys
           ports:
             - name: signaling
-              containerPort: 7880
+              containerPort: 20880
               protocol: TCP
             - name: ice-tcp
-              containerPort: 7881
+              containerPort: 20881
               protocol: TCP
             - name: ice-udp
-              containerPort: 7882
+              containerPort: 20882
               protocol: UDP
           volumeMounts:
             - name: config
               mountPath: /etc/livekit
               readOnly: true
-          # Probes deliberately target 7880 only. There is no health check
+          # Probes deliberately target 20880 only. There is no health check
           # that proves the UDP path works — see `make livekit-demo`, which
           # is the only real one.
           readinessProbe:

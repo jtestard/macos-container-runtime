@@ -98,7 +98,7 @@ docker --context macnative run --name tiny-web tiny-web:latest
 From another terminal, check it and stop it:
 
 ```sh
-curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:20081/healthz
 docker --context macnative stop tiny-web
 docker --context macnative rm tiny-web
 ```
@@ -138,7 +138,7 @@ There is no `docker load`, port mapping, TTY, stdin, entrypoint override,
 `--rm`, or container persistence yet. It accepts command arguments and read-only `-v`
 binds whose host source already exists. Bind targets must be absent in the
 image. Unsupported create options fail explicitly. The tiny web example binds
-directly to host port 8080, so no `-p` option is needed or supported.
+directly to host port 20081, so no `-p` option is needed or supported.
 
 The existing runner still has no image-root filesystem mapping. Its Seatbelt
 profile limits ordinary file writes to the temporary run directory, while
