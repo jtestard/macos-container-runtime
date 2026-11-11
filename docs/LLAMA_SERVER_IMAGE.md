@@ -42,12 +42,12 @@ GGUF. The image configuration sets:
 | Default command | None; the caller supplies `-m` and a model path |
 | Exposed port metadata | `8082/tcp` |
 
-The image is published in the existing private Docker Hub repository as
+The image is published in the public Docker Hub repository as
 `jtstormz/tiny-web:llama-server-001`, OCI index digest
 `sha256:ce40c59fa3cba71fce515d6dc5be37fd17ae6c97482e74f0ddfa8c0bb577ad05`.
-The index contains a `darwin/arm64` runnable manifest. The repository name is
-shared with other images because this Docker Hub plan does not permit another
-private repository.
+The index contains a `darwin/arm64` runnable manifest. Anyone can pull it
+without logging in. The `tiny-web` repository name is shared with the
+project's other images, which are published as tags.
 
 ## Runtime model contract
 
