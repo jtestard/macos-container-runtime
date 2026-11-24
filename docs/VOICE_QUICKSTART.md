@@ -42,7 +42,7 @@ a `macnative` Docker context. Your default Docker context does not change.
 
 ```sh
 for image in jtstormz/llama-server:ee0445c-2 jtstormz/whisper-server:v1.9.1-base.en-2 \
-    jtstormz/kokoro:b4ef64b-2 jtstormz/voice-agent:0.1.3; do
+    jtstormz/kokoro:b4ef64b-2 jtstormz/voice-agent:0.1.4; do
   docker --context macnative pull "$image"
 done
 ```
